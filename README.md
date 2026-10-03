@@ -71,7 +71,7 @@ npm test -- --project=webgpu
 npm test -- --project=webgl2
 ```
 
-Tests use Chrome at `/usr/bin/google-chrome`; set `CHROME_PATH` for another executable. WebGPU tests enable SwiftShader’s Vulkan backend for software-GPU testing on Linux/CI. They read actual output textures into mapped buffers, rather than trusting a potentially black headless screenshot. Visual QA uses headed Chrome inside a private Xvfb display.
+Tests use Chrome at `/usr/bin/google-chrome`; set `CHROME_PATH` for another executable. WebGPU tests enable SwiftShader’s Vulkan backend for software-GPU testing on Linux/CI, disable the test browser’s GPU watchdog during slow software shader compilation, and allow cold pipeline initialization time. They read actual output textures into mapped buffers, rather than trusting a potentially black headless screenshot. Visual QA uses headed Chrome inside a private Xvfb display. These launch options belong to the test browser, not the deployed application.
 
 Suites cover 144 WebGPU and 120 WebGL2 contexts, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
 

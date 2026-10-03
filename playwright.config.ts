@@ -29,6 +29,7 @@ export default defineConfig({
         launchOptions: {
           executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
           args: [
+            "--disable-gpu-watchdog",
             "--enable-unsafe-webgpu",
             "--enable-features=Vulkan",
             "--use-angle=vulkan",

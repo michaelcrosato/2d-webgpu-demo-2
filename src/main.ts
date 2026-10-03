@@ -524,6 +524,7 @@ function showError(error: unknown) {
   console.error(error);
 }
 let initialization = 0;
+let pageSuspended = false;
 function exposeDiagnostics() {
   const diagnostics: LabDiagnostics = {
     backend: isWebGPU ? "webgpu" : "webgl2",
@@ -557,6 +558,7 @@ function exposeDiagnostics() {
   window.lab = diagnostics;
 }
 async function initialize() {
+  if (pageSuspended) return;
   const generation = ++initialization;
   app.dataset.ready = "loading";
   text("#engine", `CONNECTING ${edition.toUpperCase()}`);
@@ -565,6 +567,8 @@ async function initialize() {
       ? await WebGPURenderer.create(
           canvas,
           (message) => {
+            if (pageSuspended) return;
+            console.warn(message);
             renderer?.dispose();
             renderer = undefined;
             text("#render-error", `${message} — reconnecting…`);
@@ -578,7 +582,7 @@ async function initialize() {
           },
         )
       : new Renderer(canvas);
-    if (generation !== initialization) {
+    if (generation !== initialization || pageSuspended) {
       created.dispose();
       return;
     }
@@ -600,6 +604,18 @@ canvas.addEventListener("webglcontextlost", (event) => {
 });
 canvas.addEventListener("webglcontextrestored", () => {
   if (!isWebGPU) void initialize();
+});
+window.addEventListener("pagehide", () => {
+  pageSuspended = true;
+  initialization++;
+  renderer?.dispose();
+  renderer = undefined;
+});
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    pageSuspended = false;
+    void initialize();
+  }
 });
 readURL();
 syncPlayback();

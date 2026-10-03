@@ -5,7 +5,7 @@ import type { LabDiagnostics } from "../src/diagnostics";
 import { computeEffects } from "../src/webgpu/catalog";
 
 async function ready(page: Page) {
-  await expect(page.locator("#app")).toHaveAttribute("data-ready", "true", { timeout: 30000 });
+  await expect(page.locator("#app")).toHaveAttribute("data-ready", "true", { timeout: 120000 });
   await expect(page.locator("#engine")).toHaveText("WEBGPU ACTIVE");
 }
 async function settle(page: Page, frames = 2) {
