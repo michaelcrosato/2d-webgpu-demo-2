@@ -129,7 +129,8 @@ export function advanceWater(
           ? [body.velocity[0] >= 0 ? 1 : -1, 0]
           : [body.velocity[0] / speed, body.velocity[1] / speed];
     body.clock += tick;
-    if (view === 3 && (oldY - 0.14) * (body.position[1] - 0.14) < 0)
+    // Gentle buoyancy can cross the surface repeatedly without a real impact.
+    if (view === 3 && (oldY - 0.14) * (body.position[1] - 0.14) < 0 && Math.abs(body.velocity[1]) > 0.12)
       emit(body, body.position[0], 0.14, 2.2 + Math.abs(body.velocity[1]));
     else if (
       speed > 0.06 &&

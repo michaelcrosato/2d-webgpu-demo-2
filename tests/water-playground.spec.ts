@@ -55,6 +55,9 @@ test("water interactions preserve bounded waves, coasting, buoyancy and world li
   expect(body.impulses.some((impulse) => impulse[3] > 2)).toBe(true);
   for (let i = 0; i < 300; i++) advanceWater(body, 3, 1 / 60, [0, -1]);
   expect(body.position[1]).toBeGreaterThanOrEqual(-0.65);
+  const floating = createWaterBody(3, [0, 0.14]);
+  for (let i = 0; i < 1200; i++) advanceWater(floating, 3, 1 / 60, [0, 0]);
+  expect(floating.impulses.every((impulse) => impulse[3] === 0)).toBe(true);
 });
 
 test("all three water perspectives render, steer, create wakes, pause, and export pixels", async ({
