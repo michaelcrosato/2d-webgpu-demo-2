@@ -15,6 +15,10 @@ concurrency:
 
 jobs:
   verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [webgl2, webgpu]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,17 +29,17 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
-      - run: npm test
+      - run: xvfb-run -a npm test -- --project=${{ matrix.api }}
         env:
           DEBUG: pw:browser
       - name: Preserve failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-test-results
+          name: browser-test-results-${{ matrix.api }}
           path: test-results/
       - name: Upload the static lab
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: matrix.api == 'webgpu' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist

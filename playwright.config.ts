@@ -27,6 +27,7 @@ export default defineConfig({
       testMatch: "webgpu.spec.ts",
       use: {
         launchOptions: {
+          headless: !process.env.DISPLAY,
           executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
           args: [
             "--disable-gpu-watchdog",
