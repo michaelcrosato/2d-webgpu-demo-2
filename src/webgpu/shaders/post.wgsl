@@ -47,13 +47,10 @@ fn artStyle(original: vec3f, uv: vec2f, s: i32, amount: f32, scale: f32, detail:
 @fragment fn post(input: VertexOutput) -> @location(0) vec4f {
   let uv = input.uv; let a = g.params; let e = select(g.config.x, -1, g.flags.z > 0.5); var c = sampleScene(uv);
   if (e == 10) {
-    let level = 0.38; let water = 1.0 - smoothstep(level - 0.006, level + 0.006, uv.y);
-    var q = vec2f(uv.x, level + (level - uv.y)); let wave = sin(uv.y * (35.0 + a.y * 100.0) + g.time * 2.0) + sin(uv.x * 40.0 + g.time);
-    q.x += wave * a.x * 0.012; q.y += sin(uv.x * (20.0 + a.y * 40.0) + g.time) * a.x * 0.008;
-    var reflection = sampleScene(q) * vec3f(0.40, 0.78, 0.90); let caustic = pow(max(sin(uv.x * 45.0 + wave * 2.0) * sin(uv.y * 85.0 - wave), 0.0), 8.0);
-    reflection += vec3f(0.1, 0.45, 0.43) * caustic * a.w; c = mix(c, reflection, water);
+    c=waterMaterial(uv,waterWaves(uv,waterMode()));
   }
-  if (e == 11 || e == 22) {
+  if((e==11 || e==41) && g.config.y==1){var wave=waterWaves(uv,waterMode());if(e==41){let cell=gridCell(uv);let dx=gridCell(uv+vec2f(1.0/g.sim.x,0)).x-gridCell(uv-vec2f(1.0/g.sim.x,0)).x;let dy=gridCell(uv+vec2f(0,1.0/g.sim.y)).x-gridCell(uv-vec2f(0,1.0/g.sim.y)).x;wave+=vec3f(cell.x*0.032,dx*2.4,dy*2.4);}c=waterMaterial(uv,wave);}
+  if ((e == 11 && g.config.y!=1) || e == 22) {
     let delta = (uv - g.origin) * vec2f(g.resolution.x / g.resolution.y, 1); let dist = length(delta); let dir = normalize(delta + vec2f(0.0001));
     let age = g.time - g.impact; let activeWave = step(0.0, age) * exp(-age * 0.7); let radius = age * 0.35;
     var ring = exp(-pow((dist - radius) / (0.018 + select(a.w, a.y, e == 22) * 0.07), 2.0)) * activeWave;
@@ -63,16 +60,17 @@ fn artStyle(original: vec3f, uv: vec2f, s: i32, amount: f32, scale: f32, detail:
   }
   if (e == 12) { let heat = 1.0 - smoothstep(0.1, 0.35 + a.w * 0.5, uv.y); let n = vec2f(fbm(uv * (5.0 + a.y * 25.0) + vec2f(0, -g.time)), noise(uv * 35.0 - vec2f(g.time))) - vec2f(0.5); c = sampleScene(uv + n * heat * a.x * 0.07); }
   if (e == 13) {
-    let p = coords(uv) - coords(g.pointer); let d = box(p, vec2f(0.35, 0.26)) - 0.045; let q = uv + normalize(p + vec2f(0.001)) * a.w * 0.025;
+    let p = coords(uv) - coords(g.pointer); var d = box(p, vec2f(0.35, 0.26)) - 0.045; if(g.config.y==1){d=circle(p,0.38);}let q = uv + normalize(p + vec2f(0.001)) * a.w * 0.025;
     var glass = sampleBlur(q) * 0.85 + vec3f(0.12, 0.17, 0.19) + vec3f(noise(uv * g.resolution) * 0.025); glass += vec3f(0.4, 0.7, 0.8) * exp(-abs(d) * 150.0); c = mix(c, glass, mask(d) * a.x);
   }
   if (e == 14) {
     let n = fbm(uv * (4.0 + a.y * 15.0) + vec2f(g.time * 0.035)); let d = n - (a.x * 1.1 - 0.05); let m = smoothstep(0.0, 0.018, d);
-    c = mix(vec3f(0.018, 0.033, 0.044), c, m); c += vec3f(1.7, 0.56, 0.06) * (1.0 - smoothstep(0.0, 0.015 + a.w * 0.08, d)) * m;
+    let original=c;var background=vec3f(0.018,0.033,0.044);if(g.config.y==1){background=sampleBackdrop(uv);}c=mix(background,c,m);c+=vec3f(1.7,0.56,0.06)*(1.0-smoothstep(0.0,0.015+a.w*0.08,d))*m;
+    if(g.config.y==1){c=mix(original,c,mask(gameSubject(coords(uv),e)));}
   }
   if (e == 15) {
     let band = floor(uv.y * 50.0); let interference = step(0.95, hash(vec2f(band, floor(g.time * 8.0)))); let q = uv + vec2f(interference * a.w * 0.04, 0);
-    let scan = 0.6 + 0.4 * sin(uv.y * (150.0 + a.y * 600.0) - g.time * 3.0); let hologram = vec3f(0.1, 0.95, 1.4) * luma(sampleScene(q)) * scan * (0.9 + 0.1 * sin(g.time * 12.0)); c = mix(c, hologram, a.x) + sampleBlur(uv) * 0.2;
+    let scan = 0.6 + 0.4 * sin(uv.y * (150.0 + a.y * 600.0) - g.time * 3.0);let hologram=vec3f(0.1,0.95,1.4)*luma(sampleScene(q))*scan*(0.9+0.1*sin(g.time*12.0));var region=1.0;if(g.config.y==1){region=mask(gameSubject(coords(uv),e));}c=mix(c,hologram,a.x*region)+sampleBlur(uv)*0.2*region;
   }
   if (e == 23) { let d = uv - vec2f(0.5); let offset = d * pow(length(d), 0.5 + a.y * 2.0) * a.x * 0.08 * (1.0 + sin(g.time * 2.0) * a.w); c = vec3f(sampleScene(uv + offset).r, c.g, sampleScene(uv - offset).b); }
   if (e == 24) { let width = 0.02 + a.w * 0.25; c = mix(c, sampleBlur(uv), smoothstep(width, width * 2.0 + 0.01, abs(uv.y - g.pointer.y)) * a.x); }

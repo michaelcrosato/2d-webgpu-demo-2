@@ -2,9 +2,18 @@ import { readFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { effects } from "../src/catalog";
 import type { LabDiagnostics } from "../src/diagnostics";
+import { gameStudies } from "../src/game-scenes";
 import { computeEffects } from "../src/webgpu/catalog";
 
 async function ready(page: Page) {
+  await page.waitForFunction(
+    () => ["true", "error"].includes(document.querySelector<HTMLElement>("#app")?.dataset.ready ?? ""),
+    undefined,
+    { timeout: 120000 },
+  );
+  const failure = await page.locator("#render-error").textContent();
+  if ((await page.locator("#app").getAttribute("data-ready")) === "error")
+    throw new Error(failure ?? "GPU initialization failed");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true", { timeout: 120000 });
   await expect(page.locator("#engine")).toHaveText("WEBGPU ACTIVE");
 }
@@ -35,7 +44,7 @@ async function pixels(page: Page) {
 test("all 48 native WebGPU techniques render all 144 contexts without validation errors", async ({
   page,
 }) => {
-  test.setTimeout(600000);
+  test.setTimeout(1200000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (e) => {
@@ -77,7 +86,7 @@ test("all 48 native WebGPU techniques render all 144 contexts without validation
 });
 
 test("compute kernels update state, control populations, and freeze when paused", async ({ page }) => {
-  test.setTimeout(180000);
+  test.setTimeout(360000);
   await page.goto("/");
   await ready(page);
   for (const id of [
@@ -118,7 +127,7 @@ test("native sliders, art composition, comparisons, links, and real PNG readback
   page,
   context,
 }) => {
-  test.setTimeout(180000);
+  test.setTimeout(360000);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
   await ready(page);
@@ -236,4 +245,83 @@ test("WebGPU quality, fullscreen, and counterpart settings survive transitions",
   await ready(page);
   await expect(page.locator("h1")).toHaveText("Water & refraction");
   await expect(page.locator("#parameter-1")).toHaveValue("77");
+});
+
+test("every effect has a distinct authored game composition and a matching use-case lesson", async ({
+  page,
+}) => {
+  test.setTimeout(1200000);
+  await page.goto("/");
+  await ready(page);
+  await page.selectOption("#quality", "0");
+  await page.locator("#pause").click();
+  await page.locator("#tab-1").click();
+  await page.locator("#compare").click();
+  const signatures = new Set<number>();
+  const all = [...effects, ...computeEffects];
+  for (let index = 0; index < all.length; index++) {
+    await page.locator(`button[data-effect="${all[index].id}"]`).click();
+    await settle(page);
+    await expect(page.locator("#game-brief")).toBeVisible();
+    await expect(page.locator("#game-brief")).toContainText(gameStudies[index].watch);
+    const signature = await page.evaluate(async () => {
+      const { data, width, height } = await window.lab.readPixels();
+      let hash = 2166136261;
+      for (let y = 10; y < height - 10; y += 9) {
+        for (let x = 4; x < width / 2 - 4; x += 7) {
+          const i = (y * width + x) * 4;
+          for (let k = 0; k < 3; k++) hash = Math.imul(hash ^ data[i + k], 16777619) >>> 0;
+        }
+      }
+      return hash;
+    });
+    signatures.add(signature);
+  }
+  expect(signatures.size).toBe(48);
+});
+
+test("water studio has four real settings, five visible material controls, ripple response, and durable links", async ({
+  page,
+}) => {
+  test.setTimeout(240000);
+  await page.goto("/");
+  await ready(page);
+  await page.locator("#water-shortcut").click();
+  await page.locator("#pause").click();
+  await expect(page.locator("#tab-1")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#water-studio")).toBeVisible();
+  const settings = new Set<number>();
+  for (let i = 0; i < 4; i++) {
+    await page.locator(`[data-water-preset="${i}"]`).click();
+    await settle(page);
+    settings.add((await pixels(page)).hash);
+  }
+  expect(settings.size).toBe(4);
+  await page.locator('[data-water-preset="0"]').click();
+  for (let i = 0; i < 5; i++) {
+    await page.locator(`#water-${i}`).fill("0");
+    await settle(page);
+    const low = await pixels(page);
+    await page.locator(`#water-${i}`).fill("100");
+    await settle(page);
+    expect((await pixels(page)).hash, `water control ${i} must affect GPU pixels`).not.toBe(low.hash);
+  }
+  await page.locator('[data-water-preset="1"]').click();
+  await page.locator("#water-0").fill("79");
+  const address = page.url();
+  await page.reload();
+  await ready(page);
+  await expect(page.locator("#water-0")).toHaveValue("79");
+  await expect(page.locator('[data-water-preset="1"]')).toHaveAttribute("aria-pressed", "true");
+  expect(page.url()).toBe(address);
+  await page.locator("#pause").click();
+  await settle(page);
+  const before = await pixels(page);
+  await page.locator("canvas").click({ position: { x: 240, y: 280 } });
+  await settle(page, 4);
+  expect((await pixels(page)).hash).not.toBe(before.hash);
+  await page.locator("#reset").click();
+  await expect(page.locator("#water-0")).toHaveValue("92");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -1,5 +1,7 @@
 import { createAtlas } from "../atlas";
+import { gameSceneShader } from "../game-scenes";
 import type { RenderState } from "../renderer";
+import { waterDefault, waterShader } from "../water";
 import bindings from "./shaders/bindings.wgsl?raw";
 import common from "./shaders/common.wgsl?raw";
 import fieldCode from "./shaders/field-compute.wgsl?raw";
@@ -108,17 +110,17 @@ export class WebGPURenderer {
         {
           binding: 0,
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 112 },
+          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 144 },
         },
       ],
     });
     this.uniformGroup = device.createBindGroup({
       layout: this.uniformLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 112 } }],
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 144 } }],
     });
     this.resourcesLayout = device.createBindGroupLayout({
       entries: [
-        ...[0, 1, 2, 3].map((binding) => ({
+        ...[0, 1, 2, 3, 8].map((binding) => ({
           binding,
           visibility: GPUShaderStage.FRAGMENT,
           texture: { sampleType: "float" as const },
@@ -179,8 +181,14 @@ export class WebGPURenderer {
     const layout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.uniformLayout, this.resourcesLayout],
     });
-    const scene = await this.module("Native WGSL scene", common + bindings + sceneCode);
-    const post = await this.module("Native WGSL post processing", common + bindings + postCode);
+    const scene = await this.module(
+      "Native WGSL scene",
+      common + bindings + gameSceneShader(true) + waterShader(true) + sceneCode,
+    );
+    const post = await this.module(
+      "Native WGSL post processing",
+      common + bindings + gameSceneShader(true) + waterShader(true, true) + postCode,
+    );
     const particle = await this.module("Instanced WGSL particles", common + bindings + particleCode);
     const update = await this.module("Particle compute simulation", common + updateCode);
     const fieldModule = await this.module("Storage-buffer grid simulation", common + fieldCode);
@@ -336,6 +344,7 @@ export class WebGPURenderer {
       this.target(width, height),
       this.target(width, height),
       this.target(width, height, "rgba8unorm"),
+      this.target(width, height),
     ];
     this.historyReset = true;
   }
@@ -354,7 +363,7 @@ export class WebGPURenderer {
       jump?: number;
     } = {},
   ) {
-    const bytes = new ArrayBuffer(112);
+    const bytes = new ArrayBuffer(144);
     const floats = new Float32Array(bytes);
     const ints = new Int32Array(bytes);
     floats.set([
@@ -370,6 +379,9 @@ export class WebGPURenderer {
     floats.set([patch.compare ?? -1, patch.finish ?? 0, patch.styleOnly ?? 0, patch.dt ?? 0], 16);
     floats.set([...(patch.direction ?? [0, 0]), patch.threshold ?? 0, this.particleCount], 20);
     floats.set([this.gridWidth, this.gridHeight, patch.reset ? 1 : 0, patch.jump ?? 0], 24);
+    const water = state.water ?? waterDefault;
+    floats.set(water.slice(0, 4), 28);
+    floats.set([water[4], state.waterPreset ?? 0, 0, 0], 32);
     const offset = this.slot++ * 256;
     this.device.queue.writeBuffer(this.uniformBuffer, offset, bytes);
     return offset;
@@ -378,6 +390,7 @@ export class WebGPURenderer {
     input: GPUTextureView = this.dummy.view,
     blur: GPUTextureView = this.dummy.view,
     baseline: GPUTextureView = this.dummy.view,
+    backdrop: GPUTextureView = this.dummy.view,
   ) {
     return this.device.createBindGroup({
       layout: this.resourcesLayout,
@@ -390,6 +403,7 @@ export class WebGPURenderer {
         { binding: 5, resource: this.nearest },
         { binding: 6, resource: { buffer: this.fieldBuffers[this.fieldIndex] } },
         { binding: 7, resource: { buffer: this.buffers[this.particleIndex] } },
+        { binding: 8, resource: backdrop },
       ],
     });
   }
@@ -445,7 +459,7 @@ export class WebGPURenderer {
     if (state.effect === 46 && pointerKey !== this.previousPointer) this.fieldReset = true;
     this.previousParams = parameterKey;
     this.previousPointer = pointerKey;
-    const [scene, baseline, processed, blurX, blurY, historyA, historyB, output] = this.targets;
+    const [scene, baseline, processed, blurX, blurY, historyA, historyB, output, backdrop] = this.targets;
     const encoder = this.device.createCommandEncoder({ label: "2D WebGPU frame" });
     const fieldEffects = [40, 41, 42, 45, 46];
     if (fieldEffects.includes(state.effect)) {
@@ -521,7 +535,7 @@ export class WebGPURenderer {
       this.pass(
         encoder,
         scene.view,
-        state.effect === 39 ? "sprites" : "particles",
+        state.effect === 39 || (state.effect === 43 && state.context === 1) ? "sprites" : "particles",
         this.uniform(state),
         this.resources(),
         true,
@@ -529,6 +543,8 @@ export class WebGPURenderer {
       );
     if (state.compare >= 0)
       this.pass(encoder, baseline.view, "scene", this.uniform(state, { enabled: 0 }), this.resources());
+    if (state.context === 1 && [14, 15].includes(state.effect))
+      this.pass(encoder, backdrop.view, "scene", this.uniform(state, { enabled: 2 }), this.resources());
     let input = scene;
     if (state.effect === 6 || state.effect === 7) {
       const previous = this.historyIndex === 0 ? historyA : historyB,
@@ -562,7 +578,7 @@ export class WebGPURenderer {
         this.resources(blurX.view),
       );
     };
-    const needsBlur = [2, 13, 15, 24, 30, 33, 35, 47].includes(state.effect);
+    const needsBlur = [2, 10, 11, 13, 15, 24, 30, 33, 35, 41, 47].includes(state.effect);
     if (state.effect === 47) {
       const computeBlur = (source: Target, target: Target, horizontal: boolean, threshold: number) => {
         const pass = encoder.beginComputePass({ label: "Shared workgroup Gaussian blur" });
@@ -595,7 +611,7 @@ export class WebGPURenderer {
       state.style > 0 ? processed.view : output.view,
       state.style > 0 ? "post-hdr" : "post",
       this.uniform(state, { compare: state.style > 0 ? -1 : state.compare, finish: state.style > 0 ? 0 : 1 }),
-      this.resources(input.view, needsBlur ? blurY.view : input.view, baseline.view),
+      this.resources(input.view, needsBlur ? blurY.view : input.view, baseline.view, backdrop.view),
     );
     if (state.style > 0) {
       const needsStyleBlur = [3, 6, 8].includes(state.style);

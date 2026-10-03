@@ -3,10 +3,7 @@ fn shapeField(p: vec2f) -> f32 {
     return min(circle(p - vec2f(-0.64, 0.20), 0.28), min(box(p - vec2f(0.55, -0.12), vec2f(0.24)) - 0.03, circle(p - vec2f(0.05, 0.55), 0.19)));
   }
   if (g.config.y == 1) {
-    var d = box(p - vec2f(-0.62, -0.22), vec2f(0.07, 0.45));
-    d = min(d, box(p - vec2f(0.68, -0.08), vec2f(0.06, 0.5)));
-    d = min(d, circle(p - vec2f(0.25, -0.55), 0.18));
-    return min(d, box(p - vec2f(-0.25, -0.60), vec2f(0.30, 0.07)));
+    return gameObstacles(p,g.config.x);
   }
   let q = vec2f(fm(p.x + 0.23, 0.46) - 0.23, p.y);
   return box(q - vec2f(0, -0.37), vec2f(0.17, 0.26));
@@ -22,7 +19,7 @@ fn softShadow(p: vec2f, light: vec2f, softness: f32) -> f32 {
   }
   return clamp(result, 0.0, 1.0);
 }
-fn relief(p: vec2f) -> f32 { return 0.12 * sin(p.x * (5.0 + g.params.y * 22.0)) * cos(p.y * 11.0) + 0.35 * exp(-dot(p, p) * 5.0); }
+fn relief(p: vec2f) -> f32 { if(g.config.y==1 && g.config.x==1){return max(0.0,-gameSubject(p,1))*2.0+noise(p*(12.0+g.params.y*32.0))*0.06;}return 0.12 * sin(p.x * (5.0 + g.params.y * 22.0)) * cos(p.y * 11.0) + 0.35 * exp(-dot(p, p) * 5.0); }
 fn abstractScene(p: vec2f, e: i32) -> vec3f {
   var color = vec3f(0.025, 0.065, 0.08) + vec3f(0.012, 0.022, 0.025) * p.y;
   let grid = abs(fract(p * 5.0) - vec2f(0.5));
@@ -113,9 +110,10 @@ fn city(p: vec2f, e: i32) -> vec3f {
   let uv = input.uv; let p = coords(uv); let a = g.params;
   let e = select(-1, g.config.x, g.config.z == 1);
   var color = abstractScene(p, g.config.x);
-  if (g.config.y == 1) { color = landscape(p, e); }
+  if (g.config.y == 1) { color = gameScene(p,g.config.x,g.config.z); }
   if (g.config.y == 2) { color = city(p, e); }
   if ((g.config.x == 16 || g.config.x == 17 || g.config.x == 18 || g.config.x == 21) && g.config.y == 0) { color = landscape(p, e); }
+  if(g.config.x==10 || (g.config.y==1 && g.config.x==41)){color=waterEnvironment(p,waterMode());}
   if (e == 0) {
     let light = coords(g.pointer); let dist = length(p - light);
     let shade = softShadow(p, light, mix(35.0, 3.0, a.w));
@@ -181,14 +179,14 @@ fn city(p: vec2f, e: i32) -> vec3f {
     color = mix(color, mix(vec3f(0.09, 0.4, 0.2), vec3f(0.68, 0.97, 0.32), smoothstep(1.1, 2.5, value)), blob);
     color += vec3f(0.65, 1, 0.5) * exp(-abs(value - 1.25) * 14.0) * 0.3;
   }
-  if (e == 40 || e == 41 || e == 42 || e == 45 || e == 46) {
+  if (e == 40 || (e == 41 && g.config.y!=1) || e == 42 || e == 45 || e == 46) {
     let cell = gridCell(uv); var simulationColor = vec3f(0);
     if (e == 40) { let pigment = clamp(cell.y * 2.2, 0.0, 1.0); simulationColor = mix(vec3f(0.015, 0.07, 0.13), vec3f(0.95, 0.55, 0.20), pigment); simulationColor += vec3f(0.15, 0.65, 0.60) * exp(-abs(cell.y - 0.24) * 25.0); }
     if (e == 41) { simulationColor = mix(vec3f(0.025, 0.10, 0.20), vec3f(0.18, 1.10, 1.25), clamp(cell.x * 3.0 + 0.4, 0.0, 1.0)); simulationColor *= 0.45 + 0.55 * cos(cell.x * 40.0); }
     if (e == 42) { simulationColor = mix(vec3f(0.01, 0.035, 0.075), hue(cell.y * 0.5 + g.time * 0.03) * 1.2, clamp(cell.x, 0.0, 1.0)); }
     if (e == 45) { let alive = cell.x; let local = fract(textureUV(uv) * g.sim.xy); let border = smoothstep(0.02, 0.12, min(min(local.x, local.y), min(1.0 - local.x, 1.0 - local.y))); simulationColor = vec3f(0.012, 0.035, 0.05) + vec3f(0.45, 1.1, 0.70) * (alive + cell.y * g.params.w * 0.4) * border; }
     if (e == 46) { let point = textureUV(uv) * g.sim.xy; let dist = length(point - cell); simulationColor = hue(hash(cell) * 0.8) * (0.4 + (0.2 + g.params.w * 0.6) * exp(-dist * 0.04)); simulationColor += vec3f(exp(-dist * 0.7)); }
-    var coverage = 1.0; if (g.config.y == 1) { coverage = 1.0 - smoothstep(-0.50, 0.05, p.y); } if (g.config.y == 2) { coverage = mask(box(p, vec2f(1.3, 0.65))); }
+    var coverage = 1.0; if (g.config.y == 1) { coverage = 1.0 - smoothstep(-0.50, 0.05, p.y);if(e==42){let q=(p-vec2f(-0.14,-0.03))/vec2f(0.68,0.68);coverage=exp(-dot(q,q))*0.75;}if(e==45){coverage=0.0;for(var i=0;i<4;i++){coverage=max(coverage,mask(box(p-vec2f(-1.0+f32(i)*0.66,-0.22),vec2f(0.25,0.26))));}}if(e==46){coverage=0.75;}} if (g.config.y == 2) { coverage = mask(box(p, vec2f(1.3, 0.65))); }
     color = mix(color, simulationColor, coverage);
   }
   if (e == 44) { color += vec3f(0.20, 0.65, 0.75) * exp(-abs(circle(p, 0.28)) * 120.0); color += vec3f(0.4, 0.5, 0.2) * mask(box(p - vec2f(0.62, -0.48), vec2f(0.07, 0.22))); }

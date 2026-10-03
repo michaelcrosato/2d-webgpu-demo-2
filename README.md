@@ -4,7 +4,7 @@ Two interactive editions of a 2D graphics field guide, with native implementatio
 
 **[Open WebGPU](https://michaelcrosato.github.io/2d-webgpu-demo-2/)** · **[Open WebGL2](https://michaelcrosato.github.io/2d-webgpu-demo-2/webgl2.html)**
 
-The default **WebGPU edition** has 48 techniques, 144 example contexts, four live controls per technique, and nine combinable art treatments. The preserved **WebGL2 edition** has the original 40 techniques and 120 contexts. Each experiment explains the scene, algorithm, performance costs, and practical limits, and offers a starting prompt for your game.
+The default **WebGPU edition** has 48 techniques, 144 example contexts, four live controls per technique, five extra water-material controls, and nine combinable art treatments. The preserved **WebGL2 edition** has the original 40 techniques and 120 contexts. Each experiment explains the scene, algorithm, performance costs, and practical limits, and offers a starting prompt for your game.
 
 The WebGPU page requests a device and uses native WGSL render/compute pipelines. It does not silently switch to WebGL. If your browser cannot provide an adapter, explicitly open the separate WebGL2 edition.
 
@@ -47,9 +47,27 @@ Many visual effects are achievable with either API. Compute examples demonstrate
 | Art styles | Pixel; cel; watercolor; ink; paper; CRT; halftone; neon; dither |
 | WebGPU compute | Gray–Scott reaction–diffusion; wave grid; ink advection; flocking; collisions; cellular automata; jump-flood Voronoi; tiled bloom |
 
-These are procedural illustrations, rather than playable games. Contexts use geometric studies, a forest platformer illustration, and a city or surface illustration. The catalog is broad and extensible, rather than claiming to enumerate every possible 2D technique.
+Every **In a game** tab now has an individually authored vignette, rather than reusing a forest background. Examples include a lantern heist for shadows, a crystal cave for bloom, a lightcycle circuit for trails, a lava foundry for heat haze, an ice-shield knight for glass, a teleport departure for localized dissolve, a projected robot companion for holograms, an arcade star patrol for CRT, a reef school for flocking, and a tactical territory board for jump flooding. Each vignette has a matching story and “what to notice” brief. These are visual game prototypes, rather than complete playable games.
 
 ![Eight native WebGPU compute experiments](docs/compute-gallery.png)
+
+The individually composed scenes are shown in these captured GPU galleries: [game studies 1–16](docs/game-vignettes-1.webp), [game studies 17–32](docs/game-vignettes-2.webp), [game studies 33–48](docs/game-vignettes-3.webp).
+
+## Water studio
+
+[Open the water studio](https://michaelcrosato.github.io/2d-webgpu-demo-2/#effect=water&scene=1).
+
+Four authored settings show different water applications: **Moonlit lagoon**, **Tropical shallows**, **Storm coast**, and **Cavern spring**. The material combines multi-direction waves and normals, depth-tinted refraction, a Schlick-style view-angle reflection proxy, animated caustics, shoreline/crest foam, normal-based highlights, and click-triggered ripple impulses. A boat or bridge is composited in front of the water for the game scene.
+
+![Four water settings](docs/water-studio.webp)
+
+Five additional controls expose clarity, reflection strength, foam, sparkle, and depth absorption; settings and values survive copied links. The simulated-wave game example shades the cavern pool using its persistent compute height field, while the lily pond shows analytic ripple distortion around stepping stones.
+
+These remain 2D artistic depth/view approximations: there is no ray-traced refraction, 3D Fresnel measurement, or fluid-volume solver. The sources below explain the physical ideas behind the visual cues:
+
+- [NVIDIA GPU Gems: Effective Water Simulation](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-1-effective-water-simulation-physical-models)
+- [NVIDIA GPU Gems: Water Caustics](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-2-rendering-water-caustics)
+- [NVIDIA GPU Gems 2: Generic Refraction](https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-19-generic-refraction-simulation)
 
 ## Run locally
 
@@ -73,7 +91,7 @@ npm test -- --project=webgl2
 
 Local tests use Chrome at `/usr/bin/google-chrome`; set `CHROME_PATH` for another executable. CI pins the WebGPU browser to Playwright’s bundled Chromium and runs under Xvfb. Its compositor uses ANGLE SwiftShader while the actual WebGPU device uses Vulkan SwiftShader; GPU compositing is explicitly enabled. The suite reads real output textures into mapped buffers and exercises canvas presentation, with no application-level WebGL fallback. Use `xvfb-run -a npm test` locally. Browser launch flags belong to the tests, not the deployed application.
 
-Suites cover 144 WebGPU and 120 WebGL2 contexts, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
+Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compositions for all 48 techniques, four water settings and five material controls, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
 
 ## WebGPU frame graph
 
@@ -107,6 +125,7 @@ The shared effects retain their [documented visual approximations](docs/webgl2.m
 | [WebGPU renderer](src/webgpu/renderer.ts) | Resources, pipelines, command graph, compute, lifecycle, readback |
 | [Native WGSL shaders](src/webgpu/shaders) | Scene, post, particles, grid simulation, tiled convolution |
 | [Compute catalog](src/webgpu/catalog.ts) | Eight extra lessons, controls, contexts, prompts, limits |
+| [Game vignettes](src/game-scenes.ts), [water material](src/water.ts) | Authored scene geometry, matching game briefs, and water settings, emitted into native shaders for both APIs |
 | [Shared catalog](src/catalog.ts), [edition selection](src/edition.ts) | Original techniques and API-specific explanations |
 | [WebGL2 renderer](src/renderer.ts), [GLSL](src/shaders.ts) | Preserved native WebGL2 implementation |
 | [UI](src/main.ts), [styles](src/style.css), [atlas](src/atlas.ts) | Shared interface and generated art |

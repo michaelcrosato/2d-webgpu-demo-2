@@ -6,6 +6,8 @@
   let dt = g.flags.w; let aspect = g.resolution.x / g.resolution.y; let e = g.config.x;
   let mouse = (g.pointer * 2.0 - vec2f(1)) * vec2f(aspect, 1);
   if (e == 9) { velocity = vec2f((g.params.w - 0.5) * 0.6, -0.25 - seed * 0.45); }
+  else if(e==6 && g.config.y==1){let origin=vec2f(sin(g.time*0.8)*0.78-0.18,-0.29);pos=origin+vec2f(-seed*0.15,sin(seed*35.0)*0.025);velocity=vec2f(-0.25,0);}
+  else if(e==5 && g.config.y==1){let d=mouse-pos;let radius=0.15+seed*0.4;let angle=g.time*(0.3+seed*0.25)+seed*37.0;let orbitPoint=mouse*0.65+vec2f(cos(angle)*radius,sin(angle)*radius*0.75);velocity=(orbitPoint-pos)*1.5;}
   else if (e == 43) {
     var center = vec2f(0); var alignment = vec2f(0); var separation = vec2f(0); var neighbors = 0.0;
     // Deterministic neighborhood sampling limits the cost to O(N * 64), rather than O(N^2).

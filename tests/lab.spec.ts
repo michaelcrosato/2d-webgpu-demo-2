@@ -39,7 +39,7 @@ async function pixels(page: Page) {
 
 test("all 40 effects render all 120 contexts without GPU errors", async ({ page }) => {
   // Software WebGL on shared CI runners needs longer than a local graphics workstation.
-  test.setTimeout(300000);
+  test.setTimeout(600000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (e) => {

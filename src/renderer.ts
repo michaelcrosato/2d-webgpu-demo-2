@@ -10,6 +10,7 @@ import {
   postFragment,
   sceneFragment,
 } from "./shaders";
+import { waterDefault } from "./water";
 
 type Target = {
   texture: WebGLTexture;
@@ -32,6 +33,8 @@ export interface RenderState {
   style: number;
   compare: number;
   quality: number;
+  water?: number[];
+  waterPreset?: number;
 }
 
 export class Renderer {
@@ -145,6 +148,13 @@ export class Renderer {
     this.float(p, "u_time", state.time);
     this.float(p, "u_impact", state.impact);
     this.gl.uniform4fv(this.location(p, "u_params"), state.params);
+    this.gl.uniform4fv(this.location(p, "u_waterA"), (state.water ?? waterDefault).slice(0, 4));
+    this.gl.uniform4fv(this.location(p, "u_waterB"), [
+      (state.water ?? waterDefault)[4],
+      state.waterPreset ?? 0,
+      0,
+      0,
+    ]);
     this.int(p, "u_effect", state.effect);
     this.int(p, "u_context", state.context);
     this.texture(p, "u_atlas", this.atlas, 5);
@@ -196,6 +206,7 @@ export class Renderer {
       this.target(width, height),
       this.target(Math.ceil(width / 2), Math.ceil(height / 2)),
       this.target(Math.ceil(width / 2), Math.ceil(height / 2)),
+      this.target(width, height),
       this.target(width, height),
       this.target(width, height),
     ];
@@ -293,7 +304,7 @@ export class Renderer {
     }
     const dt = Math.max(0, state.time - this.lastTime);
     this.lastTime = state.time;
-    const [scene, baseline, processed, blurX, blurY, historyA, historyB] = this.targets;
+    const [scene, baseline, processed, blurX, blurY, historyA, historyB, backdrop] = this.targets;
     this.bind(scene);
     gl.useProgram(this.scene.program);
     this.uniforms(this.scene, state);
@@ -305,6 +316,13 @@ export class Renderer {
       gl.useProgram(this.scene.program);
       this.uniforms(this.scene, state);
       this.int(this.scene, "u_enabled", 0);
+      this.full();
+    }
+    if (state.context === 1 && [14, 15].includes(state.effect)) {
+      this.bind(backdrop);
+      gl.useProgram(this.scene.program);
+      this.uniforms(this.scene, state);
+      this.int(this.scene, "u_enabled", 2);
       this.full();
     }
     let input = scene.texture;
@@ -338,7 +356,7 @@ export class Renderer {
       this.float(this.blur, "u_threshold", 0);
       this.full();
     };
-    const needsBlur = [2, 13, 15, 24, 30, 33, 35].includes(state.effect);
+    const needsBlur = [2, 10, 11, 13, 15, 24, 30, 33, 35].includes(state.effect);
     if (needsBlur) blurInput(input, state.effect === 2 ? state.params[3] * 1.2 : 0);
     this.bind(state.style > 0 ? processed : null);
     gl.useProgram(this.post.program);
@@ -346,6 +364,7 @@ export class Renderer {
     this.texture(this.post, "u_scene", input, 0);
     this.texture(this.post, "u_blur", needsBlur ? blurY.texture : input, 1);
     this.texture(this.post, "u_baseline", baseline.texture, 2);
+    this.texture(this.post, "u_backdrop", backdrop.texture, 3);
     this.float(this.post, "u_compare", state.style > 0 ? -1 : state.compare);
     this.int(this.post, "u_style", 0);
     this.int(this.post, "u_styleOnly", 0);

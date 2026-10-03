@@ -1,7 +1,9 @@
 import { type Effect, styleOptions } from "./catalog";
 import type { LabDiagnostics } from "./diagnostics";
 import { categories, edition, effects, isWebGPU } from "./edition";
+import { gameStudies } from "./game-scenes";
 import { Renderer, type RenderState } from "./renderer";
+import { waterControls, waterDefault, waterPresets } from "./water";
 import { WebGPURenderer } from "./webgpu/renderer";
 import "./style.css";
 
@@ -58,6 +60,8 @@ const state: RenderState = {
   style: 0,
   compare: -1,
   quality: 1,
+  water: [...waterDefault],
+  waterPreset: 0,
 };
 
 app.innerHTML = `
@@ -95,6 +99,24 @@ app.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const canvas = $<HTMLCanvasElement>("#canvas");
+const waterStudio = document.createElement("section");
+waterStudio.id = "water-studio";
+waterStudio.className = "water-studio";
+waterStudio.setAttribute("aria-label", "Water material studio");
+waterStudio.hidden = true;
+waterStudio.innerHTML = `<div class="water-studio-top"><div><span class="eyebrow">WATER MATERIAL STUDIO</span><h2>Five layers. One convincing surface.</h2></div><span class="studio-note">Click the canvas to disturb the water</span></div><div id="water-presets" class="water-presets" role="group" aria-label="Water setting">${waterPresets.map((preset, i) => `<button data-water-preset="${i}" aria-pressed="${i === 0}"><span class="preset-number">0${i + 1}</span>${preset.name}</button>`).join("")}</div><p id="water-story" class="water-story"></p><div id="water-knobs" class="water-knobs">${waterControls.map((label, i) => `<div class="slider-control"><div class="slider-heading"><label for="water-${i}">${label}</label><output id="water-value-${i}" for="water-${i}"></output></div><input id="water-${i}" data-water-parameter="${i}" type="range" min="0" max="100" step="1"><div class="range-labels"><span>LESS</span><span>MORE</span></div></div>`).join("")}</div><p class="water-recipe">Layered wave normals · depth-tinted refraction · view-angle reflection · moving caustics · shoreline foam</p>`;
+$(".workspace").after(waterStudio);
+const gameBrief = document.createElement("section");
+gameBrief.id = "game-brief";
+gameBrief.className = "game-brief";
+gameBrief.hidden = true;
+gameBrief.setAttribute("aria-label", "Game example brief");
+waterStudio.after(gameBrief);
+const waterShortcut = document.createElement("button");
+waterShortcut.id = "water-shortcut";
+waterShortcut.className = "tour-button water-shortcut";
+waterShortcut.textContent = "Explore water";
+$("#tour").before(waterShortcut);
 app.dataset.backend = isWebGPU ? "webgpu" : "webgl2";
 const otherEdition = document.createElement("a");
 otherEdition.className = "edition-link";
@@ -211,7 +233,41 @@ function syncScene() {
   );
   app.dataset.effect = e.id;
   app.dataset.context = String(state.context);
+  gameBrief.hidden = state.context !== 1;
+  const study = gameStudies[selected];
+  if (state.context === 1)
+    gameBrief.innerHTML = `<div><span class="eyebrow">DEDICATED GAME VIGNETTE</span><h2>${study.title}</h2><p>${study.story}</p></div><div><span class="eyebrow">WHAT TO NOTICE</span><p>${study.watch}</p><span class="vignette-note">A visual prototype of this game mechanic.</span></div>`;
+  syncWaterStudio();
   renderLesson();
+}
+function syncWaterStudio() {
+  waterStudio.hidden = selected !== 10 && !([11, 41].includes(selected) && state.context === 1);
+  $("#water-presets").hidden = selected !== 10;
+  document.querySelectorAll<HTMLButtonElement>("[data-water-preset]").forEach((button) => {
+    button.setAttribute(
+      "aria-pressed",
+      String(Number(button.dataset.waterPreset) === (state.waterPreset ?? 0)),
+    );
+  });
+  const preset = waterPresets[state.waterPreset ?? 0];
+  text("#water-story", selected === 10 ? preset.story : gameStudies[selected].story);
+  waterControls.forEach((_label, i) => {
+    const input = $<HTMLInputElement>(`#water-${i}`);
+    const value = state.water?.[i] ?? waterDefault[i];
+    input.value = String(Math.round(value * 100));
+    input.style.setProperty("--fill", `${value * 100}%`);
+    text(`#water-value-${i}`, `${Math.round(value * 100)}%`);
+  });
+  if (selected === 10) {
+    text(
+      "#scene-name",
+      `${preset.name.toUpperCase()} / ${state.context === 1 ? "GAME WATER" : "SURFACE STUDY"}`,
+    );
+    if (state.context === 1) {
+      gameBrief.querySelector("h2")!.textContent = preset.name;
+      gameBrief.querySelector("p")!.textContent = preset.story;
+    }
+  }
 }
 function syncPlayback() {
   $("#pause").innerHTML = icon(paused ? "play" : "pause", 16);
@@ -230,6 +286,8 @@ function writeURL() {
     style: String(state.style),
     values: state.params.map((v) => v.toFixed(2)).join(","),
     quality: String(state.quality),
+    water: (state.water ?? waterDefault).map((value) => value.toFixed(2)).join(","),
+    setting: String(state.waterPreset ?? 0),
   });
   history.replaceState(null, "", `#${params}`);
   otherEdition.href = `${isWebGPU ? "./webgl2.html" : "./index.html"}${selected < 40 ? `#${params}` : ""}`;
@@ -263,6 +321,12 @@ function readURL() {
     ? Math.min(2, Math.max(0, Math.round(Number(params.get("quality")) || 0)))
     : 1;
   const values = params.get("values")?.split(",").map(Number);
+  state.waterPreset = Math.min(3, Math.max(0, Math.round(Number(params.get("setting")) || 0)));
+  const water = params.get("water")?.split(",").map(Number);
+  state.water =
+    water?.length === 5 && water.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)
+      ? water
+      : [...waterPresets[state.waterPreset].defaults];
   if (values?.length === 4 && values.every((n) => Number.isFinite(n) && n >= 0 && n <= 1))
     state.params = values;
   else state.params = [...effects[e < 0 ? 0 : e].defaults];
@@ -272,6 +336,33 @@ function readURL() {
 }
 
 $("#search").addEventListener("input", renderLibrary);
+$("#water-shortcut").addEventListener("click", () => {
+  stopTour();
+  state.context = 1;
+  selectEffect(10);
+  $("#main").scrollIntoView({ block: "start" });
+});
+$("#water-presets").addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-water-preset]");
+  if (!button) return;
+  state.waterPreset = Number(button.dataset.waterPreset);
+  state.water = [...waterPresets[state.waterPreset].defaults];
+  state.params = [state.waterPreset === 2 ? 0.82 : 0.45, 0.5, 0.5, 0.55];
+  renderControls(effects[selected]);
+  syncWaterStudio();
+  renderer?.reset();
+  writeURL();
+});
+$("#water-knobs").addEventListener("input", (event) => {
+  const input = event.target as HTMLInputElement;
+  const i = Number(input.dataset.waterParameter);
+  if (!Number.isFinite(i)) return;
+  state.water ??= [...waterDefault];
+  state.water[i] = Number(input.value) / 100;
+  input.style.setProperty("--fill", `${input.value}%`);
+  text(`#water-value-${i}`, `${input.value}%`);
+  writeURL();
+});
 $("#effect-list").addEventListener("click", (event) => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-effect]");
   if (!target) return;
@@ -338,6 +429,8 @@ $("#reset").addEventListener("click", () => {
   state.impact = -100;
   state.pointer = [0.55, 0.64];
   state.origin = [0.5, 0.5];
+  state.water = [...waterPresets[state.waterPreset ?? 0].defaults];
+  syncWaterStudio();
   $<HTMLSelectElement>("#art-style").value = "0";
   renderControls(effects[selected]);
   renderer?.reset();
@@ -458,7 +551,7 @@ canvas.addEventListener("pointerdown", (event) => {
   pointer(event);
   state.origin = [...state.pointer];
   state.impact = state.time;
-  if (paused && [11, 22, 41].includes(selected)) {
+  if (paused && [10, 11, 22, 41].includes(selected)) {
     paused = false;
     syncPlayback();
   }

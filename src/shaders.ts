@@ -1,3 +1,5 @@
+import { gameSceneShader } from "./game-scenes";
+import { waterShader } from "./water";
 export const fullscreenVertex = `#version 300 es
 precision highp float;
 precision highp int;
@@ -19,6 +21,8 @@ uniform float u_time;
 uniform float u_impact;
 uniform vec2 u_origin;
 uniform vec4 u_params;
+uniform vec4 u_waterA;
+uniform vec4 u_waterB;
 uniform int u_effect;
 uniform int u_context;
 uniform sampler2D u_atlas;
@@ -43,6 +47,8 @@ vec4 sprite(vec2 local, int frame) {
 export const sceneFragment = `#version 300 es
 ${common}
 uniform int u_enabled;
+${gameSceneShader(false)}
+${waterShader(false)}
 float shapeField(vec2 p) {
   if(u_context==0) {
     float a=circle(p-vec2(-0.64,0.20),0.28);
@@ -51,10 +57,7 @@ float shapeField(vec2 p) {
     return min(a,min(b,c));
   }
   if(u_context==1) {
-    float d=box(p-vec2(-0.62,-0.22),vec2(0.07,0.45));
-    d=min(d,box(p-vec2(0.68,-0.08),vec2(0.06,0.5)));
-    d=min(d,circle(p-vec2(0.25,-0.55),0.18));
-    return min(d,box(p-vec2(-0.25,-0.60),vec2(0.30,0.07)));
+    return gameObstacles(p,u_effect);
   }
   vec2 q=p; q.x=mod(q.x+0.23,0.46)-0.23;
   return box(q-vec2(0,-0.37),vec2(0.17,0.26));
@@ -70,7 +73,7 @@ float softShadow(vec2 p,vec2 light,float softness) {
   }
   return clamp(result,0.0,1.0);
 }
-float relief(vec2 p){return 0.12*sin(p.x*(5.0+u_params.y*22.0))*cos(p.y*11.0)+0.35*exp(-dot(p,p)*5.0);}
+float relief(vec2 p){if(u_context==1 && u_effect==1)return max(0.0,-gameSubject(p,1))*2.0+noise(p*(12.0+u_params.y*32.0))*0.06;return 0.12*sin(p.x*(5.0+u_params.y*22.0))*cos(p.y*11.0)+0.35*exp(-dot(p,p)*5.0);}
 vec3 abstractScene(vec2 p,int e) {
   vec3 color=vec3(0.025,0.065,0.08)+vec3(0.012,0.022,0.025)*p.y;
   vec2 grid=abs(fract(p*5.0)-0.5);
@@ -162,8 +165,9 @@ vec3 city(vec2 p,int e) {
 }
 void main() {
   vec2 p=coords(v_uv);int e=u_enabled==1?u_effect:-1;
-  vec3 color=u_context==0?abstractScene(p,u_effect):u_context==1?landscape(p,e):city(p,e);
+  vec3 color=u_context==0?abstractScene(p,u_effect):u_context==1?gameScene(p,u_effect,u_enabled):city(p,e);
   if(u_effect==16||u_effect==17||u_effect==18||u_effect==21) {if(u_context==0)color=landscape(p,e);}
+  if(u_effect==10)color=waterEnvironment(p,waterMode());
   if(e==0) {
     vec2 light=coords(u_pointer);float dist=length(p-light);
     float shade=softShadow(p,light,mix(35.0,3.0,u_params.w));
@@ -266,14 +270,18 @@ void main(){vec3 c=texture(u_current,v_uv).rgb;vec3 old=texture(u_previous,v_uv)
 
 export const postFragment = `#version 300 es
 ${common}
+${gameSceneShader(false)}
 uniform sampler2D u_scene;
 uniform sampler2D u_blur;
 uniform sampler2D u_baseline;
+uniform sampler2D u_backdrop;
 uniform float u_compare;
 uniform int u_style;
 uniform int u_styleOnly;
 uniform int u_finish;
 vec3 sampleScene(vec2 uv){return texture(u_scene,clamp(uv,vec2(0.001),vec2(0.999))).rgb;}
+vec3 sampleBlur(vec2 uv){return texture(u_blur,uv).rgb;}
+vec3 sampleBackdrop(vec2 uv){return texture(u_backdrop,uv).rgb;}
 float edgeAt(vec2 uv,float width){
   vec2 d=vec2(width)/u_resolution;
   return length(sampleScene(uv+vec2(d.x,0))-sampleScene(uv-vec2(d.x,0)))+length(sampleScene(uv+vec2(0,d.y))-sampleScene(uv-vec2(0,d.y)));
@@ -297,16 +305,14 @@ vec3 style(vec3 c,vec2 uv,int s,float amount,float scale,float detail){
   }
   return mix(original,c,amount);
 }
+${waterShader(false, true)}
 void main(){
   vec2 uv=v_uv;int e=u_styleOnly==1?-1:u_effect;vec4 a=u_params;vec3 c=sampleScene(uv);
   if(e==10){
-    float level=0.38;float water=1.0-smoothstep(level-0.006,level+0.006,uv.y);
-    vec2 q=vec2(uv.x,level+(level-uv.y));float wave=sin(uv.y*(35.0+a.y*100.0)+u_time*2.0)+sin(uv.x*40.0+u_time);
-    q.x+=wave*a.x*0.012;q.y+=sin(uv.x*(20.0+a.y*40.0)+u_time)*a.x*0.008;
-    vec3 reflection=sampleScene(q)*vec3(0.40,0.78,0.90);float caustic=pow(max(sin(uv.x*45.0+wave*2.0)*sin(uv.y*85.0-wave),0.0),8.0);
-    reflection+=vec3(0.1,0.45,0.43)*caustic*a.w;c=mix(c,reflection,water);
+    c=waterMaterial(uv,waterWaves(uv,waterMode()));
   }
-  if(e==11||e==22){
+  if(e==11 && u_context==1)c=waterMaterial(uv,waterWaves(uv,waterMode()));
+  if((e==11 && u_context!=1)||e==22){
     vec2 delta=(uv-u_origin)*vec2(u_resolution.x/u_resolution.y,1);float dist=length(delta);vec2 dir=normalize(delta+0.0001);
     float age=u_time-u_impact;float activity=step(0.0,age)*exp(-age*0.7);float radius=age*0.35;
     float ring=exp(-pow((dist-radius)/(0.018+(e==22?a.y:a.w)*0.07),2.0))*activity;
@@ -315,9 +321,9 @@ void main(){
     c=sampleScene(uv+offset);if(e==22)c+=vec3(0.2,0.7,0.7)*ring*a.w;
   }
   if(e==12){float heat=1.0-smoothstep(0.1,0.35+a.w*0.5,uv.y);vec2 n=vec2(fbm(uv*(5.0+a.y*25.0)+vec2(0,-u_time)),noise(uv*35.0-u_time))-0.5;c=sampleScene(uv+n*heat*a.x*0.07);}
-  if(e==13){vec2 p=coords(uv)-coords(u_pointer);float d=box(p,vec2(0.35,0.26))-0.045;float m=mask(d);vec2 q=uv+normalize(p+0.001)*a.w*0.025;vec3 glass=texture(u_blur,q).rgb*0.85+vec3(0.12,0.17,0.19)+noise(uv*u_resolution)*0.025;glass+=vec3(0.4,0.7,0.8)*exp(-abs(d)*150.0);c=mix(c,glass,m*a.x);}
-  if(e==14){float n=fbm(uv*(4.0+a.y*15.0)+u_time*0.035);float threshold=a.x*1.1-0.05;float d=n-threshold;float m=smoothstep(0.0,0.018,d);c=mix(vec3(0.018,0.033,0.044),c,m);float rim=(1.0-smoothstep(0.0,0.015+a.w*0.08,d))*m;c+=vec3(1.7,0.56,0.06)*rim;}
-  if(e==15){float band=floor(uv.y*50.0);float interference=step(0.95,hash(vec2(band,floor(u_time*8.0))));vec2 q=uv+vec2(interference*a.w*0.04,0);float scan=0.6+0.4*sin(uv.y*(150.0+a.y*600.0)-u_time*3.0);vec3 hologram=vec3(0.10,0.95,1.4)*luma(sampleScene(q))*scan*(0.9+0.1*sin(u_time*12.0));c=mix(c,hologram,a.x)+texture(u_blur,uv).rgb*0.2;}
+  if(e==13){vec2 p=coords(uv)-coords(u_pointer);float d=u_context==1?circle(p,0.38):box(p,vec2(0.35,0.26))-0.045;float m=mask(d);vec2 q=uv+normalize(p+0.001)*a.w*0.025;vec3 glass=texture(u_blur,q).rgb*0.85+vec3(0.12,0.17,0.19)+noise(uv*u_resolution)*0.025;glass+=vec3(0.4,0.7,0.8)*exp(-abs(d)*150.0);c=mix(c,glass,m*a.x);}
+  if(e==14){vec3 original=c;float n=fbm(uv*(4.0+a.y*15.0)+u_time*0.035);float threshold=a.x*1.1-0.05;float d=n-threshold;float m=smoothstep(0.0,0.018,d);c=mix(u_context==1?sampleBackdrop(uv):vec3(0.018,0.033,0.044),c,m);float rim=(1.0-smoothstep(0.0,0.015+a.w*0.08,d))*m;c+=vec3(1.7,0.56,0.06)*rim;if(u_context==1)c=mix(original,c,mask(gameSubject(coords(uv),e)));}
+  if(e==15){float band=floor(uv.y*50.0);float interference=step(0.95,hash(vec2(band,floor(u_time*8.0))));vec2 q=uv+vec2(interference*a.w*0.04,0);float scan=0.6+0.4*sin(uv.y*(150.0+a.y*600.0)-u_time*3.0);vec3 hologram=vec3(0.10,0.95,1.4)*luma(sampleScene(q))*scan*(0.9+0.1*sin(u_time*12.0));float region=u_context==1?mask(gameSubject(coords(uv),e)):1.0;c=mix(c,hologram,a.x*region)+texture(u_blur,uv).rgb*0.2*region;}
   if(e==23){vec2 d=uv-0.5;float pulse=1.0+sin(u_time*2.0)*a.w;vec2 offset=d*pow(length(d),0.5+a.y*2.0)*a.x*0.08*pulse;c=vec3(sampleScene(uv+offset).r,c.g,sampleScene(uv-offset).b);}
   if(e==24){float focus=abs(uv.y-u_pointer.y);float width=0.02+a.w*0.25;float m=smoothstep(width,width*2.0+0.01,focus);c=mix(c,texture(u_blur,uv).rgb,m*a.x);}
   if(e==25){float lum=luma(c);vec3 grade=mix(vec3(lum),c,a.y*2.0);grade=(grade-0.5)*(0.7+a.w*1.4)+0.5;grade+=mix(vec3(-0.03,0.03,0.08),vec3(0.1,0.04,-0.05),clamp(lum,0.0,1.0));c=mix(c,grade,a.x);}
@@ -341,10 +347,12 @@ precision highp int;
 layout(location=0)in vec4 a_state;
 layout(location=1)in vec4 a_extra;
 out vec4 nextState;out vec4 nextExtra;
-uniform float u_dt;uniform float u_time;uniform vec2 u_pointer;uniform vec4 u_params;uniform int u_effect;uniform float u_aspect;
+uniform float u_dt;uniform float u_time;uniform vec2 u_pointer;uniform vec4 u_params;uniform int u_effect;uniform int u_context;uniform float u_aspect;
 void main(){
   vec2 pos=a_state.xy,vel=a_state.zw;float seed=a_extra.y,age=a_extra.x+u_dt;
   if(u_effect==9){vel=vec2((u_params.w-0.5)*0.6,-0.25-seed*0.45);}
+  else if(u_effect==6 && u_context==1){vec2 origin=vec2(sin(u_time*0.8)*0.78-0.18,-0.29);pos=origin+vec2(-seed*0.15,sin(seed*35.0)*0.025);vel=vec2(-0.25,0);}
+  else if(u_effect==5 && u_context==1){vec2 mouse=(u_pointer*2.0-1.0)*vec2(u_aspect,1.0);float radius=0.15+seed*0.4;float angle=u_time*(0.3+seed*0.25)+seed*37.0;vec2 target=mouse*0.65+vec2(cos(angle)*radius,sin(angle)*radius*0.75);vel=(target-pos)*1.5;}
   else{
     vec2 mouse=(u_pointer*2.0-1.0)*vec2(u_aspect,1.0);vec2 d=mouse-pos;
     float scale=2.0+u_params.y*5.0;
@@ -371,7 +379,7 @@ uniform float u_aspect;uniform vec4 u_params;uniform int u_effect;uniform int u_
 void main(){
   vec2 corners[4]=vec2[4](vec2(-1,-1),vec2(1,-1),vec2(-1,1),vec2(1,1));vec2 corner=corners[gl_VertexID];
   float size=u_effect==39?0.018+u_params.y*0.045:0.0018+u_params.y*0.012;
-  vec2 dims=vec2(size);if(u_effect==9&&u_context==2)dims*=vec2(0.3,4.0);
+  vec2 dims=vec2(size);if(u_effect==9&&u_context>=1)dims*=vec2(0.3,4.0);
   vec2 p=a_state.xy+corner*dims;gl_Position=vec4(p.x/u_aspect,p.y,0,1);v_local=corner;v_seed=a_extra.y;
 }`;
 

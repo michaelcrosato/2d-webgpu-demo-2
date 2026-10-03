@@ -6,6 +6,8 @@
 @group(1) @binding(5) var nearestSampler: sampler;
 @group(1) @binding(6) var<storage, read> field: array<vec2f>;
 @group(1) @binding(7) var<storage, read> agents: array<Particle>;
+@group(1) @binding(8) var backdrop: texture_2d<f32>;
+fn sampleBackdrop(uv:vec2f) -> vec3f { return textureSampleLevel(backdrop,linearSampler,textureUV(uv),0.0).rgb; }
 fn sampleScene(uv: vec2f) -> vec3f { return textureSampleLevel(source, linearSampler, textureUV(clamp(uv, vec2f(0.001), vec2f(0.999))), 0.0).rgb; }
 fn sampleBlur(uv: vec2f) -> vec3f { return textureSampleLevel(blurred, linearSampler, textureUV(uv), 0.0).rgb; }
 fn sprite(local: vec2f, frame: i32) -> vec4f {

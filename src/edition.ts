@@ -1,4 +1,5 @@
 import { categories as originalCategories, effects as originalEffects } from "./catalog";
+import { gameStudies } from "./game-scenes";
 import { computeEffects } from "./webgpu/catalog";
 export const isWebGPU = !location.pathname.endsWith("webgl2.html");
 export const edition = isWebGPU ? "WebGPU" : "WebGL2";
@@ -34,3 +35,22 @@ export const effects = originalEffects.map((effect) => {
   return copy;
 });
 if (isWebGPU) effects.push(...computeEffects);
+effects.forEach((effect, index) => {
+  effect.game = [gameStudies[index].title, `${gameStudies[index].story} ${gameStudies[index].watch}`];
+});
+const water = effects.find((effect) => effect.id === "water")!;
+water.description =
+  "Water becomes convincing when several cues work together: layered waves bend reflections and the seabed, depth absorbs color, caustics move beneath the surface, and foam and bright glints mark the edges and crests. Explore four individually composed settings in the water studio. Click the surface to send a ripple through it.";
+water.technique =
+  "The material evaluates multi-direction wave height and gradients, displaces reflection and refraction samples, mixes them with a Schlick-style view-angle term, and applies exponential depth absorption. Animated caustic bands, shoreline foam, crest foam, and normal-based highlights finish the surface. These are artistic 2D depth/view proxies rather than ray-traced optics. The simulated-wave game scene additionally derives its normal perturbation from the persistent compute height grid.";
+water.prompt =
+  "Create attractive 2D water with layered wave normals, depth-tinted refraction, Fresnel-style reflections, animated caustics, foam, surface glints, and pointer-triggered ripples. Expose each contribution as a control.";
+water.world = [
+  "Water material study",
+  "Compare a moonlit lagoon, clear tropical shallows, a storm coast, and a cavern waterfall pool. Each has its own environment, seabed, and lighting.",
+];
+effects.find((effect) => effect.id === "instancing")!.defaults = [0.12, 0.1, 0.5, 0.55];
+effects.find((effect) => effect.id === "particles")!.defaults = [0.25, 0.4, 0.5, 0.55];
+if (isWebGPU) effects.find((effect) => effect.id === "flocking")!.defaults = [0.08, 0.55, 0.5, 0.6];
+effects.find((effect) => effect.id === "weather")!.description =
+  "Snow in the abstract study and rain over the courier’s rooftop demonstrate the same GPU particle system with different billboard shapes. Density, wind, size, and fall speed change the mood of the game scene.";

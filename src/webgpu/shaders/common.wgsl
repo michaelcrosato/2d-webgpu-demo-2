@@ -9,6 +9,8 @@ struct Globals {
   flags: vec4f, // comparison divider, tone map, style only, simulation dt
   extra: vec4f, // blur direction xy, threshold, instance count
   sim: vec4f, // grid width, height, reset, jump distance
+  waterA: vec4f, // clarity, reflection, foam, sparkle
+  waterB: vec4f, // absorption, environment, reserved
 }
 @group(0) @binding(0) var<uniform> g: Globals;
 struct Particle { state: vec4f, extra: vec4f }
