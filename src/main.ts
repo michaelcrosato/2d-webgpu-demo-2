@@ -1,5 +1,8 @@
-import { categories, type Effect, effects, styleOptions } from "./catalog";
+import { type Effect, styleOptions } from "./catalog";
+import type { LabDiagnostics } from "./diagnostics";
+import { categories, edition, effects, isWebGPU } from "./edition";
 import { Renderer, type RenderState } from "./renderer";
+import { WebGPURenderer } from "./webgpu/renderer";
 import "./style.css";
 
 const icon = (name: string, size = 18) => {
@@ -32,13 +35,13 @@ const icon = (name: string, size = 18) => {
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.spark}</svg>`;
 };
-const groupIcons = ["sun", "spark", "drop", "layers", "camera", "palette"];
+const groupIcons = ["sun", "spark", "drop", "layers", "camera", "palette", "code"];
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 let selected = 0;
 let paused = reducedMotion;
 let tourTimer: ReturnType<typeof setInterval> | undefined;
-let renderer: Renderer | undefined;
+let renderer: Renderer | WebGPURenderer | undefined;
 let previousFrame = performance.now();
 let frameCounter = 0;
 let fpsStart = previousFrame;
@@ -62,8 +65,8 @@ app.innerHTML = `
   <aside class="sidebar" id="sidebar" aria-label="Effects library">
     <a class="brand" href="#"><span class="brand-mark"><i></i><b></b></span><span>2D<span class="brand-slash">/</span>LAB</span><span class="brand-dot"></span></a>
     <button class="icon-button sidebar-close" id="close-library" aria-label="Close effect library">${icon("close")}</button>
-    <div class="sidebar-intro">A FIELD GUIDE TO<br>GPU GRAPHICS</div>
-    <div class="library-heading">THE COLLECTION <span>40</span></div>
+    <div class="sidebar-intro">A FIELD GUIDE TO<br>${edition.toUpperCase()} GRAPHICS</div>
+    <div class="library-heading">THE COLLECTION <span>${effects.length}</span></div>
     <label class="search-box">${icon("search", 16)}<input id="search" type="search" placeholder="Find an effect…" aria-label="Search effects" autocomplete="off"><kbd>/</kbd></label>
     <nav id="effect-list" aria-label="Choose an effect"></nav>
     <div class="sidebar-footer"><span class="small-orbit">✳</span><p>Made for curious minds.<br><span>And the games you’ll make.</span></p></div>
@@ -83,7 +86,7 @@ app.innerHTML = `
       </div>
       <section class="lesson" aria-label="Learn about this technique"><div class="lesson-top"><div class="lesson-tabs" role="tablist" aria-label="Lesson"><button role="tab" id="lesson-tab-learn" data-lesson="learn" aria-selected="true" aria-controls="lesson-content">The idea</button><button role="tab" id="lesson-tab-technique" data-lesson="technique" aria-selected="false" aria-controls="lesson-content">${icon("code", 15)} Under the hood</button><button role="tab" id="lesson-tab-prompt" data-lesson="prompt" aria-selected="false" aria-controls="lesson-content">${icon("spark", 15)} Ask your AI</button></div><span class="lesson-caption">PLAY → NOTICE → UNDERSTAND</span></div><div id="lesson-content" role="tabpanel" aria-labelledby="lesson-tab-learn"></div></section>
       <div class="next-row"><span>ONE IDEA LEADS TO ANOTHER.</span><button id="previous-effect" class="text-button" aria-label="Previous effect">← Previous</button><button id="next-effect" class="next-button">Next experiment ${icon("arrow", 17)}</button></div>
-      <footer class="page-footer"><span>40 techniques · 120 contexts · endless combinations</span><span>Rendered on your GPU. Made for your imagination.</span></footer>
+      <footer class="page-footer"><span>${effects.length} techniques · ${effects.length * 3} contexts · ${edition}</span><span>Rendered on your GPU. Made for your imagination.</span></footer>
     </main>
   </div>
   <div class="toast" id="toast" role="status" hidden></div>
@@ -92,6 +95,22 @@ app.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const canvas = $<HTMLCanvasElement>("#canvas");
+app.dataset.backend = isWebGPU ? "webgpu" : "webgl2";
+const otherEdition = document.createElement("a");
+otherEdition.className = "edition-link";
+otherEdition.href = isWebGPU ? "./webgl2.html" : "./index.html";
+otherEdition.textContent = isWebGPU ? "WebGL2 edition ↗" : "WebGPU edition ↗";
+$(".top-actions").prepend(otherEdition);
+if (isWebGPU) {
+  $(".edition").innerHTML = "NATIVE WGSL + COMPUTE <span>VOL. 02</span>";
+  $("#help-dialog .fine-print").textContent =
+    "Uses native WebGPU render and compute pipelines, WGSL shaders, storage buffers, instanced draws, and rgba16float render targets. There is no automatic renderer fallback. The separate WebGL2 edition uses a different API. FPS measures delivered frames, not isolated GPU execution time. Motion starts paused when your device requests reduced motion.";
+  const helpLink = $<HTMLAnchorElement>("#help-dialog > a");
+  helpLink.href = "https://gpuweb.github.io/gpuweb/";
+  helpLink.textContent = "Explore the WebGPU specification ↗";
+  $("#help-dialog > p").textContent =
+    "A hands-on WebGPU guide with 48 techniques and three contexts each. Forty techniques have a matching WebGL2 edition, while eight additional experiments demonstrate compute dispatches, storage buffers, and shared workgroup memory.";
+}
 const text = (selector: string, content: string) => {
   $(selector).textContent = content;
 };
@@ -121,7 +140,7 @@ function renderLibrary() {
 }
 function formatControl(index: number, value: number) {
   if (index === 2) return `${(value * 2).toFixed(2)}×`;
-  if (index === 0 && [5, 6, 7, 9, 39].includes(selected))
+  if (index === 0 && [5, 6, 7, 9, 39, 43, 44].includes(selected))
     return Math.round(selected === 39 ? 100 + value * 3900 : 300 + value * 9700).toLocaleString();
   return `${Math.round(value * 100)}%`;
 }
@@ -148,6 +167,17 @@ function renderLesson() {
     $("#lesson-content").innerHTML =
       `<div class="lesson-grid"><div class="lesson-main"><span class="eyebrow">BRING THIS TO YOUR GAME</span><h2>You can ask for this.</h2><blockquote>${e.prompt}</blockquote><button class="copy-prompt" id="copy-prompt">${icon("copy", 15)} Copy starting prompt</button></div><div class="lesson-context"><span class="eyebrow">MAKE THE REQUEST SPECIFIC</span><h3>A useful next sentence</h3><p>“Use my game’s existing renderer. Expose ${e.controls[0].toLowerCase()} and ${e.controls[1].toLowerCase()} as controls, and show me the performance cost before and after.”</p><p class="fine-print">This lab shows the visual technique. Your game will also need its own art, collision, state, and integration.</p></div></div>`;
   $("#lesson-content").setAttribute("aria-labelledby", `lesson-tab-${lessonTab}`);
+  if (isWebGPU && lessonTab === "technique") {
+    const links = $("#lesson-content").querySelectorAll<HTMLAnchorElement>("a");
+    links[0].href = "https://gpuweb.github.io/gpuweb/wgsl/";
+    links[0].textContent = "WGSL language specification ↗";
+    links[1].href = "https://github.com/michaelcrosato/2d-webgpu-demo-2/tree/main/src/webgpu/shaders";
+    links[1].textContent = "Read the native WGSL shaders ↗";
+    $("#lesson-content .lesson-context p").textContent =
+      "WebGPU uses explicit render and compute pipelines. WGSL vertex shaders position geometry, fragment shaders color pixels, and compute shaders update general-purpose storage buffers or textures. Commands are recorded into an encoder and submitted together.";
+    $("#lesson-content .fine-print").textContent =
+      "The snippet is explanatory pseudocode. The repository contains the native WGSL implementation. Some older fragments express the same mathematics in GLSL-like notation.";
+  }
 }
 function syncScene() {
   document.querySelectorAll<HTMLButtonElement>("button[data-context]").forEach((b) => {
@@ -169,11 +199,11 @@ function syncScene() {
   );
   text(
     "#interaction-hint",
-    [11, 22].includes(selected)
+    [11, 22, 41].includes(selected)
       ? "Click or tap to send a wave"
       : selected === 0
         ? "Move your pointer to carry the light"
-        : [5, 6, 7, 36, 39].includes(selected)
+        : [5, 6, 7, 36, 39, 40, 42, 43, 44, 46].includes(selected)
           ? "Move your pointer to shape the motion"
           : [13, 24, 37].includes(selected)
             ? "Move your pointer across the scene"
@@ -202,6 +232,7 @@ function writeURL() {
     quality: String(state.quality),
   });
   history.replaceState(null, "", `#${params}`);
+  otherEdition.href = `${isWebGPU ? "./webgl2.html" : "./index.html"}${selected < 40 ? `#${params}` : ""}`;
 }
 function selectEffect(index: number, keepSettings = false) {
   selected = (index + effects.length) % effects.length;
@@ -214,7 +245,7 @@ function selectEffect(index: number, keepSettings = false) {
   text("#effect-number", String(selected + 1).padStart(2, "0"));
   text("#tagline", e.tagline);
   text("#breadcrumb", e.category.toUpperCase());
-  document.title = `${e.name} — 2D / Lab`;
+  document.title = `${e.name} — 2D / Lab · ${edition}`;
   renderLibrary();
   renderControls(e);
   syncScene();
@@ -354,17 +385,21 @@ $("#fullscreen").addEventListener("click", async () => {
     toast("Fullscreen is unavailable in this browser");
   }
 });
-$("#capture").addEventListener("click", () => {
+$("#capture").addEventListener("click", async () => {
   if (!renderer) {
     toast("The renderer is not available");
     return;
   }
   renderer.render(state);
-  canvas.toBlob((blob) => {
-    if (!blob) {
-      toast("Could not capture the scene");
-      return;
-    }
+  try {
+    const blob =
+      renderer instanceof WebGPURenderer
+        ? await renderer.capture()
+        : await new Promise<Blob>((resolve, reject) =>
+            canvas.toBlob((blob) =>
+              blob ? resolve(blob) : reject(new Error("Could not capture the scene")),
+            ),
+          );
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = url;
@@ -372,7 +407,9 @@ $("#capture").addEventListener("click", () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast("Scene saved as PNG");
-  });
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "Could not capture the scene");
+  }
 });
 async function copy(content: string, success: string) {
   try {
@@ -421,7 +458,7 @@ canvas.addEventListener("pointerdown", (event) => {
   pointer(event);
   state.origin = [...state.pointer];
   state.impact = state.time;
-  if (paused && [11, 22].includes(selected)) {
+  if (paused && [11, 22, 41].includes(selected)) {
     paused = false;
     syncPlayback();
   }
@@ -486,27 +523,92 @@ function showError(error: unknown) {
   app.dataset.ready = "error";
   console.error(error);
 }
-function initialize() {
+let initialization = 0;
+function exposeDiagnostics() {
+  const diagnostics: LabDiagnostics = {
+    backend: isWebGPU ? "webgpu" : "webgl2",
+    async readPixels() {
+      if (renderer instanceof WebGPURenderer) return renderer.readPixels();
+      if (!renderer) throw new Error("Renderer unavailable");
+      const data = new Uint8Array(canvas.width * canvas.height * 4);
+      renderer.gl.readPixels(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+        renderer.gl.RGBA,
+        renderer.gl.UNSIGNED_BYTE,
+        data,
+      );
+      return { data, width: canvas.width, height: canvas.height };
+    },
+    stats() {
+      return {
+        renderPasses: renderer?.drawCalls ?? 0,
+        computePasses: renderer instanceof WebGPURenderer ? renderer.computePasses : 0,
+        instances: renderer?.particleCount ?? 0,
+      };
+    },
+    loseDevice() {
+      if (renderer instanceof WebGPURenderer) renderer.loseDevice();
+      else renderer?.gl.getExtension("WEBGL_lose_context")?.loseContext();
+    },
+  };
+  window.lab = diagnostics;
+}
+async function initialize() {
+  const generation = ++initialization;
+  app.dataset.ready = "loading";
+  text("#engine", `CONNECTING ${edition.toUpperCase()}`);
   try {
-    renderer = new Renderer(canvas);
+    const created = isWebGPU
+      ? await WebGPURenderer.create(
+          canvas,
+          (message) => {
+            renderer?.dispose();
+            renderer = undefined;
+            text("#render-error", `${message} — reconnecting…`);
+            $("#render-error").hidden = false;
+            void initialize();
+          },
+          (error) => {
+            renderer?.dispose();
+            renderer = undefined;
+            showError(error);
+          },
+        )
+      : new Renderer(canvas);
+    if (generation !== initialization) {
+      created.dispose();
+      return;
+    }
+    renderer = created;
     $("#render-error").hidden = true;
-    text("#engine", "WEBGL2 ACTIVE");
-    text("#precision", renderer.hdr ? "RGBA16F / HDR" : "RGBA8 / LDR");
+    text("#engine", `${edition.toUpperCase()} ACTIVE`);
+    text("#precision", isWebGPU ? "WGSL / RGBA16F" : renderer.hdr ? "RGBA16F / HDR" : "RGBA8 / LDR");
     app.dataset.ready = "true";
+    exposeDiagnostics();
   } catch (error) {
     showError(error);
   }
 }
 canvas.addEventListener("webglcontextlost", (event) => {
+  if (isWebGPU) return;
   event.preventDefault();
   renderer = undefined;
   showError(new Error("GPU context lost. Waiting for the browser to restore it…"));
 });
-canvas.addEventListener("webglcontextrestored", initialize);
+canvas.addEventListener("webglcontextrestored", () => {
+  if (!isWebGPU) void initialize();
+});
 readURL();
 syncPlayback();
 initialize();
 function frame(now: number) {
+  if (renderer instanceof WebGPURenderer && renderer.busy) {
+    requestAnimationFrame(frame);
+    return;
+  }
   const elapsed = Math.min((now - previousFrame) / 1000, 0.05);
   previousFrame = now;
   if (renderer && !document.hidden) {
@@ -519,7 +621,10 @@ function frame(now: number) {
       if (now - fpsStart > 700) {
         text("#fps", String(Math.round((fpsFrames * 1000) / (now - fpsStart))));
         text("#resolution", `${canvas.width} × ${canvas.height}`);
-        text("#draw-calls", String(renderer.drawCalls));
+        text(
+          "#draw-calls",
+          String(renderer.drawCalls + (renderer instanceof WebGPURenderer ? renderer.computePasses : 0)),
+        );
         fpsFrames = 0;
         fpsStart = now;
       }

@@ -4,7 +4,8 @@ export type Category =
   | "Materials & magic"
   | "World building"
   | "Camera & post"
-  | "Art styles";
+  | "Art styles"
+  | "Compute playground";
 export interface Effect {
   id: string;
   name: string;

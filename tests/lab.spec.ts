@@ -46,7 +46,7 @@ test("all 40 effects render all 120 contexts without GPU errors", async ({ page 
     if (e.type() === "error" || /GL_INVALID|GL ERROR|Feedback loop|INVALID_OPERATION/.test(e.text()))
       errors.push(e.text());
   });
-  await page.goto("/");
+  await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await page.selectOption("#quality", "0");
   const hashes = new Set<number>();
@@ -70,7 +70,7 @@ test("all 40 effects render all 120 contexts without GPU errors", async ({ page 
 });
 
 test("sliders affect rendered pixels, comparison works, and styles combine", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await page.locator("#pause").click();
   for (const effect of effects.filter(
@@ -124,7 +124,7 @@ test("sliders affect rendered pixels, comparison works, and styles combine", asy
 test("pause freezes motion, pointer lights change pixels, reset and links restore controls", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await page.locator("#pause").click();
   await settle(page);
@@ -156,7 +156,7 @@ test("pause freezes motion, pointer lights change pixels, reset and links restor
 
 test("lessons, prompt copy, PNG capture, and keyboard navigation work", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/");
+  await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await page.locator('[data-lesson="technique"]').click();
   await expect(page.locator("#code-snippet")).toContainText("softShadow");
@@ -184,7 +184,7 @@ test("lessons, prompt copy, PNG capture, and keyboard navigation work", async ({
 test("mobile, reduced motion, unsupported GPU, and context restoration", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
+  await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#pause")).toHaveAttribute("aria-label", "Play animation");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -232,7 +232,7 @@ test("RGBA8 fallback, quality controls, fullscreen, and tour work", async ({ pag
       return name === "EXT_color_buffer_float" ? null : getExtension.call(this, name);
     };
   });
-  await page.goto("/#effect=bloom");
+  await page.goto("/webgl2.html#effect=bloom");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#precision")).toHaveText("RGBA8 / LDR");
   await settle(page);

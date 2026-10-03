@@ -1,102 +1,125 @@
-# 2D / Lab
+# 2D / Lab — WebGPU + WebGL2
 
-An interactive field guide to GPU graphics for people making 2D games with AI.
+Two interactive editions of a 2D graphics field guide, with native implementations of both APIs.
 
-**[Open the lab](https://michaelcrosato.github.io/2d-webgpu-demo-2/)** · **[Browse the shaders](src/shaders.ts)**
+**[Open WebGPU](https://michaelcrosato.github.io/2d-webgpu-demo-2/)** · **[Open WebGL2](https://michaelcrosato.github.io/2d-webgpu-demo-2/webgl2.html)**
 
-40 techniques, 120 example contexts, four live controls per technique, and nine combinable art treatments. Each experiment includes an explanation, the underlying algorithm, performance considerations, and a starting prompt you can use when asking an AI to implement it in your game.
+The default **WebGPU edition** has 48 techniques, 144 example contexts, four live controls per technique, and nine combinable art treatments. The preserved **WebGL2 edition** has the original 40 techniques and 120 contexts. Each experiment explains the scene, algorithm, performance costs, and practical limits, and offers a starting prompt for your game.
 
-![The interactive 2D effects lab](docs/preview.png)
+The WebGPU page requests a device and uses native WGSL render/compute pipelines. It does not silently switch to WebGL. If your browser cannot provide an adapter, explicitly open the separate WebGL2 edition.
+
+![The native WebGPU lab](docs/webgpu-preview.png)
 
 ## Explore
 
-- Pick an effect from the searchable collection.
-- Switch between **Abstract**, **In a game**, and **In the world**. The contexts use a geometric study, a forest platformer illustration, and a city or surface illustration.
-- Move the pointer to control lights, particle currents, glass, portals, or focus. Click or tap to launch a ripple or shockwave.
-- Adjust the four sliders. Their labels change with the technique.
-- Combine an effect with **Pixel art, Cel shading, Watercolor, Ink, Paper cutout, CRT, Halftone, Neon, or Dither**.
-- Use **Compare** for a clean scene beside the processed result. **Reset** restores the current experiment.
-- Save a PNG or copy a URL that preserves the effect, context, style, parameters, and quality.
-- Read **Under the hood** for the GPU recipe and its limitations. **Ask your AI** provides an implementation prompt.
+Pick an effect from the searchable collection, then switch between **Abstract**, **In a game**, and **In the world**. Move your pointer to guide lights, focus, portals, particle currents, or simulation sources. Click or tap to trigger a ripple, shockwave, or grid-wave impulse.
 
-Keyboard: **Space** plays/pauses, **← / →** selects experiments, **R** resets, **/** searches. Context and lesson tabs support arrow keys, Home, and End. Animation initially pauses if your device requests reduced motion. The tour advances every ten seconds and can be stopped at any time.
+Use the sliders, **Compare**, **Reset**, and **Art direction** to explore differences. Pixel art, Cel shading, Watercolor, Ink, Paper cutout, CRT, Halftone, Neon, and Dither process the completed effect through a separate style pass. Save a PNG, copy a link containing the settings, or copy an **Ask your AI** prompt.
+
+**Under the hood** distinguishes physical models from artistic approximations. Short snippets are explanatory pseudocode; complete native shaders are in the repository.
+
+Keyboard: **Space** plays/pauses; **← / →** browse; **R** resets; **/** searches. Tabs support arrow keys, Home, and End. Animation initially pauses for reduced-motion preferences. The optional tour advances every ten seconds.
+
+## Two APIs, different implementations
+
+| Capability | Native WebGPU | Preserved WebGL2 |
+| --- | --- | --- |
+| Shaders | WGSL | GLSL ES 3.00 |
+| Commands | Explicit encoder and render/compute passes | WebGL state and draw calls |
+| Particle updates | Compute dispatches, 64 agents per workgroup | Vertex-shader transform feedback |
+| Particle state | Read/write storage buffers | Alternating interleaved vertex buffers |
+| Instancing | Storage lookup by instance_index | Vertex attributes and divisors |
+| HDR targets | Core rgba16float | RGBA16F extension; RGBA8 fallback |
+| Grid simulations | Compute kernels and neighboring storage cells | Additional experiments belong to WebGPU |
+| Tiled blur | Workgroup memory, barriers, storage textures | Original bloom uses fragment blur passes |
+
+Many visual effects are achievable with either API. Compute examples demonstrate WebGPU’s programming model; similar visuals can also be built using WebGL texture-based techniques.
 
 ## The collection
 
 | Area | Techniques |
 | --- | --- |
-| Light & shadow | Soft shadows; normal-map lighting; bloom & glow; light shafts; contact shadows |
-| Particles & motion | GPU particles; persistent trails; flow fields; fire & smoke; rain & snow; instanced sprites |
-| Materials & magic | Water & refraction; interactive ripples; heat haze; frosted glass; dissolve; holograms; metaballs; masks & portals |
-| World building | Layered parallax; wind & foliage; distance-field terrain; tilemaps & atlases; sprite animation; day / night cycle |
-| Camera & post | Shockwaves; chromatic aberration; focus & blur; color grading; vignette & film grain; digital glitch |
-| Art styles | Pixel art; cel shading; watercolor; ink & hatching; paper cutout; CRT monitor; comic halftone; neon wire; dither & palette |
+| Light & shadow | Soft shadows; normal lighting; bloom; light shafts; contact shadows |
+| Particles & motion | GPU particles; trails; flow fields; fire/smoke; rain/snow; instanced sprites |
+| Materials & magic | Water/refraction; ripples; heat haze; glass; dissolve; holograms; metaballs; portals |
+| World building | Parallax; wind; distance-field terrain; tilemaps/atlases; sprites; day/night |
+| Camera & post | Shockwaves; chromatic aberration; focus/blur; grading; vignette/grain; glitch |
+| Art styles | Pixel; cel; watercolor; ink; paper; CRT; halftone; neon; dither |
+| WebGPU compute | Gray–Scott reaction–diffusion; wave grid; ink advection; flocking; collisions; cellular automata; jump-flood Voronoi; tiled bloom |
 
-This is a broad, extensible catalog of practical 2D techniques. Graphics is open-ended: it cannot literally enumerate every possible effect. The examples are illustrative scenes, rather than playable games, and the explanations distinguish artistic approximations from physical simulation.
+These are procedural illustrations, rather than playable games. Contexts use geometric studies, a forest platformer illustration, and a city or surface illustration. The catalog is broad and extensible, rather than claiming to enumerate every possible 2D technique.
+
+![Eight native WebGPU compute experiments](docs/compute-gallery.png)
 
 ## Run locally
 
-Requires Node.js 22.12+ or 24+ and a browser with WebGL2.
+Requires Node.js 22.12+ or 24+. WebGPU needs a browser/device that provides an adapter and a secure context: **HTTPS or localhost**. WebGL2 remains available separately.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. No API key, server backend, downloaded art, or paid service is needed. Google Fonts is optional; local font fallbacks work if it cannot load.
+Open the printed localhost address for WebGPU; append `/webgl2.html` for WebGL2. No API key, backend, downloaded game art, or paid service is needed. Google Fonts is optional; local fallbacks work if it cannot load.
 
 ```sh
-npm run build       # Type-check and build dist/
-npm run preview     # Serve the production build
-npm test            # Actual WebGL2 browser tests
+npm run check                     # Biome checks
+npm run build                     # Type-check and build both editions
+npm run preview                   # Serve production build
+npm test                          # Both native GPU/browser suites
+npm test -- --project=webgpu
+npm test -- --project=webgl2
 ```
 
-Tests use an installed Chrome at `/usr/bin/google-chrome` and software WebGL through SwiftShader, so a physical GPU is not required in CI. Set `CHROME_PATH` to your Chrome or Chromium executable on another machine. Tests inspect framebuffer pixels and WebGL errors across all 120 contexts, validate visible slider/style changes, and exercise interaction, links, export, mobile, reduced motion, unsupported-GPU handling, and context restoration.
+Tests use Chrome at `/usr/bin/google-chrome`; set `CHROME_PATH` for another executable. WebGPU tests enable SwiftShader’s Vulkan backend for software-GPU testing on Linux/CI. They read actual output textures into mapped buffers, rather than trusting a potentially black headless screenshot. Visual QA uses headed Chrome inside a private Xvfb display.
 
-## How the renderer works
+Suites cover 144 WebGPU and 120 WebGL2 contexts, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
 
-The implementation uses **WebGL2**, which the original brief allowed alongside WebGPU. It has no graphics-engine dependency.
+## WebGPU frame graph
 
-1. **Scene pass.** A fullscreen triangle renders procedural geometry, landscapes, surfaces, and a locally generated pixel-art texture atlas. Signed distance fields describe obstacles and masks. Lighting uses distance-field ray marching and procedural height-field normals.
-2. **Particle update.** A vertex shader integrates particle state using WebGL2 transform feedback. Two interleaved position/velocity/age/seed buffers alternate; particle updates do not loop over positions in JavaScript.
-3. **Instanced drawing.** One quad is repeated for up to 10,000 particles or 4,000 animated sprites. Alpha or additive blending composites the instances into the scene target.
-4. **Frame history.** Trails and flow fields retain a faded previous frame using two alternating framebuffer textures.
-5. **Blur.** Effects that need blur use horizontal and vertical Gaussian passes at half resolution. Bloom extracts highlights before blurring.
-6. **Effect composite.** A fragment shader applies material distortion, camera effects, or the experiment's art treatment. When an extra art direction is selected, this completed effect goes into another render target, and a separate pass styles that result. This preserves distortion and dissolve under pixel/CRT treatments. Tone mapping occurs only at the final output. Comparison renders an additional clean scene with the technique disabled.
+1. **Compute state:** agent kernels integrate storage-buffer state. Grid kernels update concentrations, heights, dye, living cells, or nearest seeds. Separate dispatches ensure each solver step observes the completed prior step.
+2. **Scene:** a fullscreen-triangle pipeline shades procedural geometry, distance fields, landscapes, surfaces, and a locally generated sprite atlas. Compute scenes read the current simulation buffer.
+3. **Instances:** a vertex shader reads agent state by instance_index, drawing the population in one call.
+4. **History:** alternating float textures preserve fading trails.
+5. **Blur:** regular effects use separable render passes. Tiled compute bloom loads 64 pixels and an eight-pixel halo into shared memory, synchronizes every lane, and writes a 17-tap convolution into storage textures.
+6. **Effect/style:** material and camera effects finish before the optional style pass, preserving dissolve under pixel sampling. Tone mapping runs once at final output.
+7. **Present/export:** an RGBA8 output texture is presented to the canvas. PNG export copies that same texture to a row-aligned buffer and encodes its actual bytes, independently of presentation timing.
 
-When `EXT_color_buffer_float` is available, render targets use **RGBA16F** to retain bright values for bloom. Otherwise, the lab uses **RGBA8**; glow still works, with a smaller dynamic range. The renderer checks framebuffer completeness, disposes replaced resources on resize, suspends rendering when the tab is hidden, and recreates resources after a restored context.
+Submissions are limited to two frames in flight to prevent unbounded GPU queues. FPS counts submitted frames under bounded scheduling, not isolated GPU execution time. Pass counts include render, compute, and presentation. Quality controls display resolution; compute fields use a fixed 256 × 160 grid.
 
-The on-screen FPS is delivered animation frames per wall-clock second, not a GPU timer. The displayed pass count includes particle update/draw calls as well as framebuffer passes. **Economy**, **Balanced**, and **High detail** cap render width and device-pixel ratio to manage fill rate.
+## Simulation boundaries
 
-## Practical boundaries
+- Reaction–diffusion is a discrete Gray–Scott model with periodic boundaries and fixed solver steps, not calibrated chemistry.
+- Grid waves preserve height/velocity state; they are not a water-volume solver.
+- Ink advection transports dye through prescribed currents, without an incompressible-fluid pressure solve.
+- Flocking samples 64 candidates per agent, rather than performing an exhaustive neighborhood search.
+- Collisions are discrete point tests against a circle, box, and floor. No particle-to-particle or swept collision is included.
+- Cellular automata use Conway’s rule, wrapped edges, and an age channel for glow.
+- Jump flooding approximates nearest-seed regions; it is not guaranteed to be an exact distance solver in every arrangement.
+- Compute bloom demonstrates synchronization and tiled convolution. No universal speedup over fragment blur is claimed.
 
-- Water uses screen-space reflection/refraction and analytic ripples, not a fluid solver. Flow fields guide particles, rather than solving Navier–Stokes equations.
-- Normal lighting derives a normal from a height field; a production sprite system would commonly use authored normal-map textures.
-- Light shafts and contact shadows use artistic screen-space approximations. Distance-field shadows account for the demo's defined obstacles, not every decorative pixel.
-- Terrain is visual. A game must connect its field to collision and gameplay systems.
-- Paper, watercolor, and neon are image treatments. Neon detects screen-space contours rather than rendering mesh wireframes.
-- The portal shows a transformed version of the existing scene. A game can replace this sample with a separately rendered destination scene.
-- The short lesson snippets are pseudocode. `src/shaders.ts` contains the actual GLSL ES 3.00 programs.
+The shared effects retain their [documented visual approximations](docs/webgl2.md#practical-boundaries), including screen-space water, procedural normals, stylized shafts, and visual terrain without gameplay collision.
 
-## Source map
+## Source
 
 | File | Purpose |
 | --- | --- |
-| [src/catalog.ts](src/catalog.ts) | Lessons, control labels, defaults, examples, prompts, and performance notes |
-| [src/shaders.ts](src/shaders.ts) | GLSL scene, material, post-process, blur, feedback, and particle programs |
-| [src/renderer.ts](src/renderer.ts) | WebGL2 resources, atlas generation, transform feedback, instancing, and render passes |
-| [src/main.ts](src/main.ts) | UI, controls, pointer/keyboard interaction, links, export, tour, and lifecycle |
-| [src/style.css](src/style.css) | Responsive lab interface |
-| [tests/lab.spec.ts](tests/lab.spec.ts) | Browser and actual framebuffer verification |
+| [WebGPU renderer](src/webgpu/renderer.ts) | Resources, pipelines, command graph, compute, lifecycle, readback |
+| [Native WGSL shaders](src/webgpu/shaders) | Scene, post, particles, grid simulation, tiled convolution |
+| [Compute catalog](src/webgpu/catalog.ts) | Eight extra lessons, controls, contexts, prompts, limits |
+| [Shared catalog](src/catalog.ts), [edition selection](src/edition.ts) | Original techniques and API-specific explanations |
+| [WebGL2 renderer](src/renderer.ts), [GLSL](src/shaders.ts) | Preserved native WebGL2 implementation |
+| [UI](src/main.ts), [styles](src/style.css), [atlas](src/atlas.ts) | Shared interface and generated art |
+| [WebGPU tests](tests/webgpu.spec.ts), [WebGL2 tests](tests/lab.spec.ts) | Actual GPU/browser verification |
 
-To add an experiment, append an entry to the catalog and implement its scene/post shader branch. Keep the catalog's index aligned with the shader's effect ID. Add truthful descriptions, three contexts, four meaningful parameters, and a practical prompt, then run the browser suite.
+For developer inspection, `window.lab.backend`, `window.lab.stats()`, and `await window.lab.readPixels()` expose the backend, pass/instance counts, and output bytes. `window.lab.loseDevice()` exercises recovery. These inspect the real renderer.
 
 ## References
 
-- [MDN: WebGL2RenderingContext](https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext)
-- [MDN: Transform feedback](https://developer.mozilla.org/en-US/docs/Web/API/WebGLTransformFeedback)
-- [MDN: Instanced rendering](https://developer.mozilla.org/en-US/docs/Web/API/WebGL2RenderingContext/drawArraysInstanced)
-- [Khronos: WebGL 2.0 specification](https://registry.khronos.org/webgl/specs/latest/2.0/)
-- [Khronos: Floating-point color buffers](https://registry.khronos.org/webgl/extensions/EXT_color_buffer_float/)
+- [WebGPU specification](https://gpuweb.github.io/gpuweb/)
+- [WGSL specification](https://gpuweb.github.io/gpuweb/wgsl/)
+- [WebGPU explainer](https://gpuweb.github.io/gpuweb/explainer/)
+- [API correspondence](https://gpuweb.github.io/gpuweb/correspondence/)
+- [Original WebGL2 guide](docs/webgl2.md)
 
-All graphics and the sprite atlas are generated locally by the application. Source is available under the [MIT license](LICENSE).
+All game graphics are generated locally. Source is available under the [MIT license](LICENSE).

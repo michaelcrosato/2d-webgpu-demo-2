@@ -1538,3 +1538,24 @@ dialog a {
 .slider-heading output {
   color: #536640;
 }
+
+.edition-link {
+  font-size: 10px;
+  color: #526b3c;
+  text-decoration: none;
+  border: 1px solid #d4dcc5;
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+@media (max-width: 600px) {
+  .top-note {
+    display: none;
+  }
+  .topbar .mobile-menu {
+    margin-right: auto;
+  }
+  .edition-link {
+    font-size: 8px;
+    padding: 5px;
+  }
+}
