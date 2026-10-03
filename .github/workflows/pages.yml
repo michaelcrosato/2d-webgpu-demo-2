@@ -29,6 +29,9 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - name: Install the pinned WebGPU test browser
+        if: matrix.api == 'webgpu'
+        run: npx playwright install chromium --no-shell
       - run: xvfb-run -a npm test -- --project=${{ matrix.api }}
         env:
           DEBUG: pw:browser

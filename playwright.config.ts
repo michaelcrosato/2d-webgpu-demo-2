@@ -27,16 +27,18 @@ export default defineConfig({
       testMatch: "webgpu.spec.ts",
       use: {
         launchOptions: {
-          headless: !process.env.DISPLAY,
-          executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
+          headless: true,
+          channel: "chromium",
+          executablePath: process.env.CHROME_PATH || (process.env.CI ? undefined : "/usr/bin/google-chrome"),
           args: [
             "--disable-gpu-watchdog",
+            "--enable-gpu",
             "--enable-unsafe-webgpu",
+            "--enable-unsafe-swiftshader",
+            "--ignore-gpu-blocklist",
             "--enable-features=Vulkan",
-            "--use-angle=vulkan",
+            "--use-angle=swiftshader",
             "--use-vulkan=swiftshader",
-            "--use-webgpu-adapter=swiftshader",
-            "--disable-vulkan-surface",
           ],
         },
       },
