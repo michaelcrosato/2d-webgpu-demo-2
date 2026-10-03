@@ -10,7 +10,10 @@ struct Globals {
   extra: vec4f, // blur direction xy, threshold, instance count
   sim: vec4f, // grid width, height, reset, jump distance
   waterA: vec4f, // clarity, reflection, foam, sparkle
-  waterB: vec4f, // absorption, environment, reserved
+  waterB: vec4f, // absorption, environment, water perspective, reserved
+  waterBody: vec4f, // world position xy, heading xy
+  waterMotion: vec4f, // velocity xy, water clock, side-scrolling camera
+  waterTrail: array<vec4f, 8>, // world position xy, emission time, strength
 }
 @group(0) @binding(0) var<uniform> g: Globals;
 struct Particle { state: vec4f, extra: vec4f }

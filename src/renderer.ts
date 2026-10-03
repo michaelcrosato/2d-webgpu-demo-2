@@ -11,6 +11,7 @@ import {
   sceneFragment,
 } from "./shaders";
 import { waterDefault } from "./water";
+import type { WaterBody } from "./water-playground";
 
 type Target = {
   texture: WebGLTexture;
@@ -35,6 +36,8 @@ export interface RenderState {
   quality: number;
   water?: number[];
   waterPreset?: number;
+  waterView?: number;
+  waterBody?: WaterBody;
 }
 
 export class Renderer {
@@ -152,9 +155,20 @@ export class Renderer {
     this.gl.uniform4fv(this.location(p, "u_waterB"), [
       (state.water ?? waterDefault)[4],
       state.waterPreset ?? 0,
-      0,
+      state.waterView ?? 0,
       0,
     ]);
+    const body = state.waterBody;
+    this.gl.uniform4fv(this.location(p, "u_waterBody"), [
+      ...(body?.position ?? [0, 0]),
+      ...(body?.heading ?? [1, 0]),
+    ]);
+    this.gl.uniform4fv(this.location(p, "u_waterMotion"), [
+      ...(body?.velocity ?? [0, 0]),
+      body?.clock ?? 0,
+      body?.camera ?? 0,
+    ]);
+    this.gl.uniform4fv(this.location(p, "u_waterTrail[0]"), body?.impulses.flat() ?? new Float32Array(32));
     this.int(p, "u_effect", state.effect);
     this.int(p, "u_context", state.context);
     this.texture(p, "u_atlas", this.atlas, 5);

@@ -867,6 +867,9 @@ export function emitArtShader(source: string, wgsl: boolean): string {
         _POINTER_: "g.pointer",
         _WATERA_: "g.waterA",
         _WATERB_: "g.waterB",
+        _WATERBODY_: "g.waterBody",
+        _WATERMOTION_: "g.waterMotion",
+        _WATERTRAIL_: "g.waterTrail",
         _ORIGIN_: "g.origin",
         _IMPACT_: "g.impact",
         _EFFECT_: "effectId",
@@ -878,13 +881,16 @@ export function emitArtShader(source: string, wgsl: boolean): string {
         _POINTER_: "u_pointer",
         _WATERA_: "u_waterA",
         _WATERB_: "u_waterB",
+        _WATERBODY_: "u_waterBody",
+        _WATERMOTION_: "u_waterMotion",
+        _WATERTRAIL_: "u_waterTrail",
         _ORIGIN_: "u_origin",
         _IMPACT_: "u_impact",
         _EFFECT_: "u_effect",
         _CONTEXT_: "u_context",
       };
   let result = source.replace(
-    /_TIME_|_PARAMS_|_POINTER_|_WATERA_|_WATERB_|_ORIGIN_|_IMPACT_|_EFFECT_|_CONTEXT_/g,
+    /_TIME_|_PARAMS_|_POINTER_|_WATERA_|_WATERB_|_WATERBODY_|_WATERMOTION_|_WATERTRAIL_|_ORIGIN_|_IMPACT_|_EFFECT_|_CONTEXT_/g,
     (token) => aliases[token],
   );
   if (wgsl) return result;

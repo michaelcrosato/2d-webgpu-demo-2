@@ -1,4 +1,5 @@
 import { emitArtShader } from "./game-scenes";
+import { waterPlaygroundBase, waterPlaygroundMaterial } from "./water-playground";
 
 export const waterPresets = [
   {
@@ -42,6 +43,7 @@ fn waterWaves(uv: vec2f, mode: i32) -> vec3f {
 }
 fn waterFish(c0: vec3f,p: vec2f,center: vec2f,size:f32,ink:vec3f) -> vec3f {var q:vec2f=(p-center)/size;var c:vec3f=artPaint(c0,artEllipse(q,vec2f(0.16,0.066)),ink);c=artPaint(c,artTriangle(vec2f(q.y,q.x)+vec2f(0,0.2),0.07,0.14),ink*0.7);return artPaint(c,circle(q-vec2f(0.10,0.016),0.012),vec3f(0.04,0.09,0.14));}
 fn waterEnvironment(p: vec2f,mode:i32) -> vec3f {
+  if(_EFFECT_==10 && _WATERB_.z>0.0){return demoBackdrop(p);}
   var uv:vec2f=vec2f(p.x/1.64,p.y)*0.5+vec2f(0.5);var c:vec3f=mix(vec3f(0.15,0.30,0.36),vec3f(0.015,0.045,0.12),clamp(p.y*0.5+0.5,0.0,1.0));
   if(mode==0){
     c=artStars(c,p,0.58);c+=vec3f(0.13,0.26,0.30)*exp(-dot(p-vec2f(0.92,0.62),p-vec2f(0.92,0.62))*4.0);
@@ -114,6 +116,7 @@ fn waterCaustic(uv:vec2f,t:f32) -> f32 {
   return pow(1.0-smoothstep(0.02,0.19,min(a,b)),2.0);
 }
 fn waterMaterial(uv:vec2f,waves:vec3f) -> vec3f {
+  if(_EFFECT_==10 && _WATERB_.z>0.0){return demoMaterial(uv);}
   var mode:i32=waterMode();var p:vec2f=coords(uv);var a:vec4f=_WATERA_;var depthControl:f32=_WATERB_.x;var level:f32=waterLevel(mode);
   var c:vec3f=sampleScene(uv);var shore:f32=0.66+sin(p.x*1.7)*0.17+sin(p.x*5.0)*0.035;
   var depth:f32=max(0.0,(level-uv.y)*2.8);var wet:f32=1.0-smoothstep(level+waves.x-0.004,level+waves.x+0.004,uv.y);
@@ -146,5 +149,8 @@ fn waterMaterial(uv:vec2f,waves:vec3f) -> vec3f {
 `;
 
 export function waterShader(wgsl: boolean, includeMaterial = false): string {
-  return emitArtShader(environment + (includeMaterial ? material : ""), wgsl);
+  return emitArtShader(
+    waterPlaygroundBase + environment + (includeMaterial ? waterPlaygroundMaterial + material : ""),
+    wgsl,
+  );
 }

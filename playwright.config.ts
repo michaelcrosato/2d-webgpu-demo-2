@@ -15,7 +15,7 @@ export default defineConfig({
   projects: [
     {
       name: "webgl2",
-      testMatch: "lab.spec.ts",
+      testMatch: ["lab.spec.ts", "water-playground.spec.ts"],
       use: {
         launchOptions: {
           executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
@@ -25,7 +25,7 @@ export default defineConfig({
     },
     {
       name: "webgpu",
-      testMatch: ["webgpu.spec.ts", "startup.spec.ts"],
+      testMatch: ["webgpu.spec.ts", "startup.spec.ts", "water-playground.spec.ts"],
       use: {
         launchOptions: {
           headless: true,

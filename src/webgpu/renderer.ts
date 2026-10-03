@@ -261,7 +261,7 @@ export class WebGPURenderer {
     this.context = context;
     this.uniformBuffer = device.createBuffer({
       label: "Per-pass uniforms",
-      size: 256 * 64,
+      size: 512 * 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.uniformLayout = device.createBindGroupLayout({
@@ -269,13 +269,13 @@ export class WebGPURenderer {
         {
           binding: 0,
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 144 },
+          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 304 },
         },
       ],
     });
     this.uniformGroup = device.createBindGroup({
       layout: this.uniformLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 144 } }],
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 304 } }],
     });
     this.resourcesLayout = device.createBindGroupLayout({
       entries: [
@@ -597,7 +597,7 @@ export class WebGPURenderer {
       jump?: number;
     } = {},
   ) {
-    const bytes = new ArrayBuffer(144);
+    const bytes = new ArrayBuffer(304);
     const floats = new Float32Array(bytes);
     const ints = new Int32Array(bytes);
     floats.set([
@@ -615,8 +615,12 @@ export class WebGPURenderer {
     floats.set([this.gridWidth, this.gridHeight, patch.reset ? 1 : 0, patch.jump ?? 0], 24);
     const water = state.water ?? waterDefault;
     floats.set(water.slice(0, 4), 28);
-    floats.set([water[4], state.waterPreset ?? 0, 0, 0], 32);
-    const offset = this.slot++ * 256;
+    floats.set([water[4], state.waterPreset ?? 0, state.waterView ?? 0, 0], 32);
+    const body = state.waterBody;
+    floats.set([...(body?.position ?? [0, 0]), ...(body?.heading ?? [1, 0])], 36);
+    floats.set([...(body?.velocity ?? [0, 0]), body?.clock ?? 0, body?.camera ?? 0], 40);
+    if (body) floats.set(body.impulses.flat(), 44);
+    const offset = this.slot++ * 512;
     this.device.queue.writeBuffer(this.uniformBuffer, offset, bytes);
     return offset;
   }

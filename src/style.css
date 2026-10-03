@@ -1604,6 +1604,83 @@ dialog a {
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
+.water-perspectives {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 18px 0;
+}
+.water-perspectives button {
+  min-height: 46px;
+  border: 1px solid #bcc9ac;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f1f4e9;
+  color: #3d5130;
+  font: inherit;
+  font-size: 12px;
+}
+.water-perspectives button[aria-pressed="true"] {
+  background: #384f3b;
+  border-color: #384f3b;
+  color: #fff;
+}
+.water-drive {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #eaf0e5;
+  border-top: 1px solid #d5dfce;
+  color: #344c36;
+}
+.water-drive > div:first-child {
+  flex: 1;
+  min-width: 200px;
+}
+.water-drive strong {
+  font-size: 12px;
+}
+.water-drive p {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+.water-steering {
+  display: flex;
+  gap: 5px;
+}
+.water-steering button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #adbea4;
+  border-radius: 7px;
+  background: #fffdf6;
+  color: #344c36;
+  font-size: 20px;
+  touch-action: none;
+}
+.water-steering button:active {
+  background: #c9dac2;
+}
+.water-view-label {
+  margin-left: 18px;
+  font-size: 12px;
+  font-weight: 600;
+}
+canvas.water-interactive {
+  touch-action: none;
+  cursor: grab;
+}
+canvas.water-interactive:active {
+  cursor: grabbing;
+}
+@media (max-width: 600px) {
+  .water-perspectives {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 .water-presets button {
   justify-content: flex-start;
   padding: 12px;

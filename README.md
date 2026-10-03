@@ -61,6 +61,16 @@ The individually composed scenes are shown in these captured GPU galleries: [gam
 
 [Open the water studio](https://michaelcrosato.github.io/2d-webgpu-demo-2/#effect=water&scene=1).
 
+The studio also has three interactive perspectives in both editions:
+
+- [Top-down 2D](https://michaelcrosato.github.io/2d-webgpu-demo-2/#effect=water&scene=1&view=1): steer a boat across a shallow lagoon and leave a foamy wake.
+- [Isometric 2D](https://michaelcrosato.github.io/2d-webgpu-demo-2/#effect=water&scene=1&view=2): move a boat across a raised canal diorama, with the wake projected onto the same ground plane.
+- [Side-scrolling 2D](https://michaelcrosato.github.io/2d-webgpu-demo-2/#effect=water&scene=1&view=3): pilot a submarine, dive and rise through the surface, and watch the camera follow across the seabed.
+
+Drag in the scene to steer, focus the canvas and hold **WASD / arrow keys**, or hold the on-screen direction buttons. **Pause** freezes the object and waves; **Reset object** returns to the starting position. Experiment links retain the perspective and object position, and PNG exports name the perspective.
+
+The object model uses acceleration, water drag, bounded movement, and gravity when the submarine emerges. Eight retained wave packets produce spreading rings, fading foam, and bubbles; surface crossings emit stronger splash packets. These are stylized analytic responses, not a full fluid solver. The separate **Simulated wave grid** technique retains its native compute simulation.
+
 Four authored settings show different water applications: **Moonlit lagoon**, **Tropical shallows**, **Storm coast**, and **Cavern spring**. The material combines multi-direction waves and normals, depth-tinted refraction, a Schlick-style view-angle reflection proxy, animated caustics, shoreline/crest foam, normal-based highlights, and click-triggered ripple impulses. A boat or bridge is composited in front of the water for the game scene.
 
 ![Four water settings](docs/water-studio.webp)
@@ -96,7 +106,7 @@ npm test -- --project=webgl2
 
 WebGPU tests use Playwright’s bundled Chromium locally and in CI; WebGL2 tests use Chrome at `/usr/bin/google-chrome`. Set `CHROME_PATH` to override either executable. CI runs under Xvfb. Its compositor uses ANGLE SwiftShader while the actual WebGPU device uses Vulkan SwiftShader; GPU compositing is explicitly enabled. The suite reads real output textures into mapped buffers and exercises canvas presentation, with no application-level WebGL fallback. Use `xvfb-run -a npm test` locally. Browser launch flags belong to the tests, not the deployed application.
 
-Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compositions for all 48 techniques, four water settings and five material controls, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
+Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compositions for all 48 techniques, four water settings and five material controls, three interactive water perspectives with object motion, wakes, diving, scrolling, touch steering and saved positions, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
 
 ## WebGPU frame graph
 

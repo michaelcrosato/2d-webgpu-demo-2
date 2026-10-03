@@ -93,6 +93,14 @@ export interface LabDiagnostics {
     compilingEffect?: number | null;
     inFlight?: number;
     completedFrames?: number;
+    water?: {
+      view: number;
+      position: number[];
+      velocity: number[];
+      clock: number;
+      camera: number;
+      wakes: number;
+    };
   };
   loseDevice(): void;
 }

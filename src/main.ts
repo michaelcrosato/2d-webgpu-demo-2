@@ -4,6 +4,13 @@ import { categories, edition, effects, isWebGPU } from "./edition";
 import { gameStudies } from "./game-scenes";
 import { Renderer, type RenderState } from "./renderer";
 import { waterControls, waterDefault, waterPresets } from "./water";
+import {
+  advanceWater,
+  createWaterBody,
+  waterScreenDirection,
+  waterViews,
+  waterWorldFromUV,
+} from "./water-playground";
 import { WebGPURenderer } from "./webgpu/renderer";
 import "./style.css";
 
@@ -64,7 +71,18 @@ const state: RenderState = {
   quality: 0,
   water: [...waterDefault],
   waterPreset: 0,
+  waterView: 0,
+  waterBody: createWaterBody(0),
 };
+const waterKeys = new Set<string>();
+let waterDrag: number | undefined;
+let waterTarget: [number, number] | undefined;
+const waterActive = () => selected === 10 && (state.waterView ?? 0) > 0;
+function releaseWaterControls() {
+  waterKeys.clear();
+  waterDrag = undefined;
+  waterTarget = undefined;
+}
 
 app.innerHTML = `
   <a class="skip-link" href="#main">Skip to experiment</a>
@@ -119,6 +137,26 @@ waterStudio.setAttribute("aria-label", "Water material studio");
 waterStudio.hidden = true;
 waterStudio.innerHTML = `<div class="water-studio-top"><div><span class="eyebrow">WATER MATERIAL STUDIO</span><h2>Five layers. One convincing surface.</h2></div><span class="studio-note">Click the canvas to disturb the water</span></div><div id="water-presets" class="water-presets" role="group" aria-label="Water setting">${waterPresets.map((preset, i) => `<button data-water-preset="${i}" aria-pressed="${i === 0}"><span class="preset-number">0${i + 1}</span>${preset.name}</button>`).join("")}</div><p id="water-story" class="water-story"></p><div id="water-knobs" class="water-knobs">${waterControls.map((label, i) => `<div class="slider-control"><div class="slider-heading"><label for="water-${i}">${label}</label><output id="water-value-${i}" for="water-${i}"></output></div><input id="water-${i}" data-water-parameter="${i}" type="range" min="0" max="100" step="1"><div class="range-labels"><span>LESS</span><span>MORE</span></div></div>`).join("")}</div><p class="water-recipe">Layered wave normals · depth-tinted refraction · view-angle reflection · moving caustics · shoreline foam</p>`;
 $(".workspace").after(waterStudio);
+const waterPerspectives = document.createElement("div");
+waterPerspectives.id = "water-perspectives";
+waterPerspectives.className = "water-perspectives";
+waterPerspectives.setAttribute("role", "group");
+waterPerspectives.setAttribute("aria-label", "Water perspective");
+waterPerspectives.innerHTML = waterViews
+  .map((view, i) => `<button data-water-view="${i}" aria-pressed="${i === 0}">${view.name}</button>`)
+  .join("");
+$("#water-presets").before(waterPerspectives);
+const waterDrive = document.createElement("div");
+waterDrive.id = "water-drive";
+waterDrive.className = "water-drive";
+waterDrive.hidden = true;
+waterDrive.innerHTML = `<div><strong id="water-drive-title">Steer the boat</strong><p id="water-drive-hint"></p></div><div class="water-steering" role="group" aria-label="Move object through water"><button data-water-direction="left" aria-label="Move left">←</button><button data-water-direction="up" aria-label="Move up">↑</button><button data-water-direction="down" aria-label="Move down">↓</button><button data-water-direction="right" aria-label="Move right">→</button></div><button id="water-object-reset" class="text-button">Reset object</button>`;
+$(".render-stats").after(waterDrive);
+const waterViewLabel = document.createElement("span");
+waterViewLabel.id = "water-view-label";
+waterViewLabel.className = "water-view-label";
+waterViewLabel.hidden = true;
+$(".scene-toolbar").prepend(waterViewLabel);
 const gameBrief = document.createElement("section");
 gameBrief.id = "game-brief";
 gameBrief.className = "game-brief";
@@ -188,7 +226,20 @@ function renderControls(effect: Effect) {
     .join("");
 }
 function renderLesson() {
-  const e = effects[selected];
+  const e = { ...effects[selected] };
+  if (waterActive()) {
+    const view = waterViews[state.waterView!];
+    e.description = view.story;
+    e.game = [view.title, view.story];
+    e.world = [view.title, view.story];
+    e.technique =
+      "A small object model integrates thrust, drag and coasting in world coordinates. Motion emits up to eight retained wave packets. The fragment shader evaluates expanding, fading rings and gradients to bend the seabed, light the surface and draw foam. The isometric view projects the same ground plane into a diamond; the side view adds surface-crossing splashes, rising bubbles and a following camera. This is a stylized analytic response, not a full fluid solver.";
+    e.code =
+      "velocity += (thrust - velocity * drag) * dt;\nposition += velocity * dt;\nemitWake(position, speed); // Keep a bounded trail.\n// Project the object and its wake through the same camera.";
+    e.prompt = `Build an interactive ${view.name.toLowerCase()} water scene with a controllable ${state.waterView === 3 ? "submarine" : "boat"}, acceleration, drag, coasting, and persistent fading wakes. Support dragging, WASD, arrow keys, and touch controls. ${state.waterView === 3 ? "Add diving, surface-crossing splashes, underwater bubbles, and a following side-scrolling camera." : state.waterView === 2 ? "Project both the boat and water disturbance onto the same isometric plane." : "Show refraction of the lagoon floor, bow ripples, and a foamy trailing wake."} Keep the number of wake packets bounded and expose water-material controls.`;
+    e.cost =
+      "The object model uses bounded small steps; the shader evaluates at most eight retained wave packets. Perspective changes reuse the water effect pipeline, and the existing GPU queue limits remain active.";
+  }
   const scene =
     state.context === 1 ? e.game : state.context === 2 ? e.world : ["Abstract study", e.description];
   if (lessonTab === "learn")
@@ -202,6 +253,7 @@ function renderLesson() {
     $("#lesson-content").innerHTML =
       `<div class="lesson-grid"><div class="lesson-main"><span class="eyebrow">BRING THIS TO YOUR GAME</span><h2>You can ask for this.</h2><blockquote>${e.prompt}</blockquote><button class="copy-prompt" id="copy-prompt">${icon("copy", 15)} Copy starting prompt</button></div><div class="lesson-context"><span class="eyebrow">MAKE THE REQUEST SPECIFIC</span><h3>A useful next sentence</h3><p>“Use my game’s existing renderer. Expose ${e.controls[0].toLowerCase()} and ${e.controls[1].toLowerCase()} as controls, and show me the performance cost before and after.”</p><p class="fine-print">This lab shows the visual technique. Your game will also need its own art, collision, state, and integration.</p></div></div>`;
   $("#lesson-content").setAttribute("aria-labelledby", `lesson-tab-${lessonTab}`);
+  if (waterActive() && lessonTab === "learn") $("#context-jump").textContent = "Try another perspective →";
   if (isWebGPU && lessonTab === "technique") {
     const links = $("#lesson-content").querySelectorAll<HTMLAnchorElement>("a");
     links[0].href = "https://gpuweb.github.io/gpuweb/wgsl/";
@@ -254,8 +306,30 @@ function syncScene() {
   renderLesson();
 }
 function syncWaterStudio() {
+  const active = waterActive();
+  const view = waterViews[state.waterView ?? 0];
+  waterPerspectives.hidden = selected !== 10;
+  waterDrive.hidden = !active;
+  waterViewLabel.hidden = !active;
+  $(".scene-tabs").hidden = active;
+  canvas.classList.toggle("water-interactive", active);
+  canvas.setAttribute(
+    "aria-label",
+    active
+      ? `${view.title}. ${view.hint}`
+      : "GPU rendered scene. Move the pointer to interact. Click or tap to trigger a wave.",
+  );
+  document.querySelectorAll<HTMLButtonElement>("[data-water-view]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.waterView) === (state.waterView ?? 0)));
+  });
+  if (active) {
+    text("#water-view-label", view.name);
+    text("#water-drive-title", (state.waterView ?? 0) === 3 ? "Pilot the submarine" : "Steer the boat");
+    text("#water-drive-hint", view.hint);
+    text("#interaction-hint", "Drag to steer · WASD / arrow keys when the scene has focus");
+  }
   waterStudio.hidden = selected !== 10 && !([11, 41].includes(selected) && state.context === 1);
-  $("#water-presets").hidden = selected !== 10;
+  $("#water-presets").hidden = selected !== 10 || active;
   document.querySelectorAll<HTMLButtonElement>("[data-water-preset]").forEach((button) => {
     button.setAttribute(
       "aria-pressed",
@@ -263,7 +337,7 @@ function syncWaterStudio() {
     );
   });
   const preset = waterPresets[state.waterPreset ?? 0];
-  text("#water-story", selected === 10 ? preset.story : gameStudies[selected].story);
+  text("#water-story", active ? view.story : selected === 10 ? preset.story : gameStudies[selected].story);
   waterControls.forEach((_label, i) => {
     const input = $<HTMLInputElement>(`#water-${i}`);
     const value = state.water?.[i] ?? waterDefault[i];
@@ -274,11 +348,16 @@ function syncWaterStudio() {
   if (selected === 10) {
     text(
       "#scene-name",
-      `${preset.name.toUpperCase()} / ${state.context === 1 ? "GAME WATER" : "SURFACE STUDY"}`,
+      active
+        ? `${view.title.toUpperCase()} / ${view.name.toUpperCase()}`
+        : `${preset.name.toUpperCase()} / ${state.context === 1 ? "GAME WATER" : "SURFACE STUDY"}`,
     );
     if (state.context === 1) {
-      gameBrief.querySelector("h2")!.textContent = preset.name;
-      gameBrief.querySelector("p")!.textContent = preset.story;
+      gameBrief.querySelector("h2")!.textContent = active ? view.title : preset.name;
+      gameBrief.querySelector("p")!.textContent = active ? view.story : preset.story;
+      if (active)
+        gameBrief.querySelectorAll("p")[1].textContent =
+          "Watch the water react to acceleration and turning, then release the controls: the object coasts and the wake fades. Pause freezes both the object and its water response.";
     }
   }
 }
@@ -301,11 +380,14 @@ function writeURL() {
     quality: String(state.quality),
     water: (state.water ?? waterDefault).map((value) => value.toFixed(2)).join(","),
     setting: String(state.waterPreset ?? 0),
+    view: String(state.waterView ?? 0),
+    object: (state.waterBody?.position ?? [0, 0]).map((value) => value.toFixed(3)).join(","),
   });
   history.replaceState(null, "", `#${params}`);
   otherEdition.href = `${isWebGPU ? "./webgl2.html" : "./index.html"}${selected < 40 ? `#${params}` : ""}`;
 }
 function selectEffect(index: number, keepSettings = false) {
+  releaseWaterControls();
   selected = (index + effects.length) % effects.length;
   state.effect = selected;
   state.time = 0;
@@ -335,6 +417,12 @@ function readURL() {
     : 0;
   const values = params.get("values")?.split(",").map(Number);
   state.waterPreset = Math.min(3, Math.max(0, Math.round(Number(params.get("setting")) || 0)));
+  state.waterView = Math.min(3, Math.max(0, Math.round(Number(params.get("view")) || 0)));
+  const position = params.get("object")?.split(",").map(Number);
+  state.waterBody = createWaterBody(
+    state.waterView,
+    position?.length === 2 && position.every(Number.isFinite) ? [position[0], position[1]] : undefined,
+  );
   const water = params.get("water")?.split(",").map(Number);
   state.water =
     water?.length === 5 && water.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)
@@ -354,6 +442,50 @@ $("#water-shortcut").addEventListener("click", () => {
   state.context = 1;
   selectEffect(10);
   $("#main").scrollIntoView({ block: "start" });
+});
+waterPerspectives.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-water-view]");
+  if (!button) return;
+  stopTour();
+  releaseWaterControls();
+  state.waterView = Number(button.dataset.waterView);
+  state.waterBody = createWaterBody(state.waterView);
+  state.context = 1;
+  syncScene();
+  writeURL();
+  canvas.focus({ preventScroll: true });
+  $("#stage").scrollIntoView({ block: "center" });
+});
+$("#water-object-reset").addEventListener("click", () => {
+  releaseWaterControls();
+  state.waterBody = createWaterBody(state.waterView ?? 0);
+  writeURL();
+});
+const waterDirections: Record<string, string> = {
+  left: "arrowleft",
+  right: "arrowright",
+  up: "arrowup",
+  down: "arrowdown",
+};
+document.querySelectorAll<HTMLButtonElement>("[data-water-direction]").forEach((button) => {
+  const key = waterDirections[button.dataset.waterDirection!];
+  button.addEventListener("pointerdown", (event) => {
+    if (!labRunning || !waterActive()) return;
+    event.preventDefault();
+    waterKeys.add(key);
+    waterTarget = undefined;
+    button.setPointerCapture(event.pointerId);
+  });
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"])
+    button.addEventListener(name, () => waterKeys.delete(key));
+  button.addEventListener("keydown", (event) => {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      waterKeys.add(key);
+    }
+  });
+  button.addEventListener("keyup", () => waterKeys.delete(key));
+  button.addEventListener("blur", () => waterKeys.delete(key));
 });
 $("#water-presets").addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-water-preset]");
@@ -412,11 +544,16 @@ document.querySelectorAll<HTMLButtonElement>("button[data-lesson]").forEach((but
 $("#lesson-content").addEventListener("click", async (event) => {
   const target = (event.target as HTMLElement).closest("button");
   if (target?.id === "context-jump") {
+    if (waterActive()) {
+      $<HTMLButtonElement>(`[data-water-view="${(state.waterView! % 3) + 1}"]`).click();
+      return;
+    }
     state.context = state.context === 1 ? 2 : 1;
     syncScene();
     writeURL();
   }
-  if (target?.id === "copy-prompt") await copy(effects[selected].prompt, "Game prompt copied");
+  if (target?.id === "copy-prompt")
+    await copy($("#lesson-content blockquote").textContent ?? effects[selected].prompt, "Game prompt copied");
 });
 $<HTMLSelectElement>("#art-style").addEventListener("change", (e) => {
   state.style = Number((e.target as HTMLSelectElement).value);
@@ -436,6 +573,8 @@ $("#compare").addEventListener("click", () => {
   syncCompare();
 });
 $("#reset").addEventListener("click", () => {
+  releaseWaterControls();
+  state.waterBody = createWaterBody(state.waterView ?? 0);
   state.params = [...effects[selected].defaults];
   state.style = 0;
   state.time = 0;
@@ -481,6 +620,7 @@ $("#help").addEventListener("click", () => $<HTMLDialogElement>("#help-dialog").
 $("#close-help").addEventListener("click", () => $<HTMLDialogElement>("#help-dialog").close());
 $("#share").addEventListener("click", async () => {
   writeURL();
+  writeURL();
   await copy(location.href, "Experiment link copied, including your settings");
 });
 $("#fullscreen").addEventListener("click", async () => {
@@ -497,7 +637,10 @@ $("#capture").addEventListener("click", async () => {
     return;
   }
   const snapshot = structuredClone(state);
-  const filename = `2d-lab-${effects[selected].id}-${["abstract", "game", "world"][state.context]}.png`;
+  const scene = waterActive()
+    ? ["material", "top-down", "isometric", "side-scrolling"][state.waterView!]
+    : ["abstract", "game", "world"][state.context];
+  const filename = `2d-lab-${effects[selected].id}-${scene}.png`;
   const captureButton = $<HTMLButtonElement>("#capture");
   captureButton.disabled = true;
   captureButton.setAttribute("aria-busy", "true");
@@ -566,9 +709,24 @@ function pointer(event: PointerEvent) {
     Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
     Math.min(1, Math.max(0, 1 - (event.clientY - bounds.top) / bounds.height)),
   ];
+  if (waterActive() && waterDrag === event.pointerId)
+    waterTarget = waterWorldFromUV(
+      state.waterView!,
+      state.pointer,
+      bounds.width / bounds.height,
+      state.waterBody?.camera,
+    );
 }
 canvas.addEventListener("pointermove", pointer);
 canvas.addEventListener("pointerdown", (event) => {
+  if (waterActive() && labRunning) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    waterDrag = event.pointerId;
+    waterKeys.clear();
+    canvas.setPointerCapture(event.pointerId);
+    canvas.focus({ preventScroll: true });
+  }
   pointer(event);
   state.origin = [...state.pointer];
   state.impact = state.time;
@@ -577,6 +735,20 @@ canvas.addEventListener("pointerdown", (event) => {
     syncPlayback();
   }
 });
+for (const name of ["pointerup", "pointercancel", "lostpointercapture"])
+  canvas.addEventListener(name, (event) => {
+    if ((event as PointerEvent).pointerId === waterDrag) {
+      waterDrag = undefined;
+      waterTarget = undefined;
+      writeURL();
+    }
+  });
+canvas.addEventListener("blur", releaseWaterControls);
+window.addEventListener("blur", releaseWaterControls);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) releaseWaterControls();
+});
+document.addEventListener("keyup", (event) => waterKeys.delete(event.key.toLowerCase()));
 document.addEventListener("keydown", (event) => {
   if (!$<HTMLElement>("#boot-screen").hidden) return;
   if (event.key === "Escape" && !$<HTMLDialogElement>("#help-dialog").open) {
@@ -588,6 +760,18 @@ document.addEventListener("keydown", (event) => {
     (event.target as HTMLElement).matches("input, select, textarea, button, a")
   )
     return;
+  const key = event.key.toLowerCase();
+  if (
+    waterActive() &&
+    labRunning &&
+    document.activeElement === canvas &&
+    ["w", "a", "s", "d", "arrowup", "arrowleft", "arrowdown", "arrowright"].includes(key)
+  ) {
+    event.preventDefault();
+    waterKeys.add(key);
+    waterTarget = undefined;
+    return;
+  }
   if (event.key === " ") {
     event.preventDefault();
     paused = !paused;
@@ -680,6 +864,16 @@ function exposeDiagnostics() {
         renderPasses: renderer?.drawCalls ?? 0,
         computePasses: renderer instanceof WebGPURenderer ? renderer.computePasses : 0,
         instances: renderer?.particleCount ?? 0,
+        water: {
+          view: state.waterView ?? 0,
+          position: [...state.waterBody!.position],
+          velocity: [...state.waterBody!.velocity],
+          clock: state.waterBody!.clock,
+          camera: state.waterBody!.camera,
+          wakes: state.waterBody!.impulses.filter(
+            (impulse) => impulse[3] > 0 && state.waterBody!.clock - impulse[2] < 4,
+          ).length,
+        },
       };
     },
     loseDevice() {
@@ -760,6 +954,7 @@ window.addEventListener("pageshow", (event) => {
 readURL();
 syncPlayback();
 window.boot.onShow(() => {
+  releaseWaterControls();
   labRunning = false;
   stopTour();
   if (window.boot.status === "failed" && renderer) {
@@ -848,12 +1043,12 @@ function frame(now: number) {
         requestAnimationFrame(frame);
         return;
       }
-      const selection = `${selected}/${state.context}/${state.quality}/${state.style}`;
+      const selection = `${selected}/${state.context}/${state.quality}/${state.style}/${state.waterView}`;
       if (selection !== renderingSelection) {
         renderingSelection = selection;
         window.boot.detail(
           "Selected demo",
-          `${effects[selected].id} / context ${state.context} / quality ${state.quality} / style ${state.style}`,
+          `${effects[selected].id} / context ${state.context} / quality ${state.quality} / style ${state.style}${waterActive() ? ` / ${waterViews[state.waterView!].name}` : ""}`,
         );
         window.boot.record(`Selected ${effects[selected].id}, context ${state.context}.`);
       }
@@ -865,7 +1060,25 @@ function frame(now: number) {
         return;
       }
       renderProgress.hidden = true;
-      if (!paused) state.time += elapsed * state.params[2] * 2;
+      if (!paused) {
+        const dt = elapsed * state.params[2] * 2;
+        state.time += dt;
+        if (waterActive()) {
+          const direction: [number, number] = [
+            Number(waterKeys.has("arrowright") || waterKeys.has("d")) -
+              Number(waterKeys.has("arrowleft") || waterKeys.has("a")),
+            Number(waterKeys.has("arrowup") || waterKeys.has("w")) -
+              Number(waterKeys.has("arrowdown") || waterKeys.has("s")),
+          ];
+          advanceWater(
+            state.waterBody!,
+            state.waterView!,
+            dt,
+            waterScreenDirection(state.waterView!, direction),
+            waterTarget,
+          );
+        }
+      }
       frameCounter++;
       fpsFrames++;
       canvas.dataset.frame = String(frameCounter);
