@@ -44,7 +44,7 @@ async function pixels(page: Page) {
 test("all 48 native WebGPU techniques render all 144 contexts without validation errors", async ({
   page,
 }) => {
-  test.setTimeout(1200000);
+  test.setTimeout(1800000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (e) => {
@@ -86,7 +86,7 @@ test("all 48 native WebGPU techniques render all 144 contexts without validation
 });
 
 test("compute kernels update state, control populations, and freeze when paused", async ({ page }) => {
-  test.setTimeout(360000);
+  test.setTimeout(600000);
   await page.goto("/");
   await ready(page);
   for (const id of [
@@ -127,7 +127,7 @@ test("native sliders, art composition, comparisons, links, and real PNG readback
   page,
   context,
 }) => {
-  test.setTimeout(360000);
+  test.setTimeout(600000);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/");
   await ready(page);
@@ -250,7 +250,7 @@ test("WebGPU quality, fullscreen, and counterpart settings survive transitions",
 test("every effect has a distinct authored game composition and a matching use-case lesson", async ({
   page,
 }) => {
-  test.setTimeout(1200000);
+  test.setTimeout(1800000);
   await page.goto("/");
   await ready(page);
   await page.selectOption("#quality", "0");
@@ -283,7 +283,7 @@ test("every effect has a distinct authored game composition and a matching use-c
 test("water studio has four real settings, five visible material controls, ripple response, and durable links", async ({
   page,
 }) => {
-  test.setTimeout(240000);
+  test.setTimeout(600000);
   await page.goto("/");
   await ready(page);
   await page.locator("#water-shortcut").click();

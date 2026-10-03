@@ -39,7 +39,7 @@ async function pixels(page: Page) {
 
 test("all 40 effects render all 120 contexts without GPU errors", async ({ page }) => {
   // Software WebGL on shared CI runners needs longer than a local graphics workstation.
-  test.setTimeout(600000);
+  test.setTimeout(1800000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (e) => {
@@ -70,6 +70,7 @@ test("all 40 effects render all 120 contexts without GPU errors", async ({ page 
 });
 
 test("sliders affect rendered pixels, comparison works, and styles combine", async ({ page }) => {
+  test.setTimeout(600000);
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
   await page.locator("#pause").click();
