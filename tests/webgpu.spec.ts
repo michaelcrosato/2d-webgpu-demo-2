@@ -4,6 +4,7 @@ import { effects } from "../src/catalog";
 import type { LabDiagnostics } from "../src/diagnostics";
 import { gameStudies } from "../src/game-scenes";
 import { computeEffects } from "../src/webgpu/catalog";
+import { enterLab } from "./start-lab";
 
 async function ready(page: Page) {
   await page.waitForFunction(
@@ -16,6 +17,7 @@ async function ready(page: Page) {
     throw new Error(failure ?? "GPU initialization failed");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true", { timeout: 120000 });
   await expect(page.locator("#engine")).toHaveText("WEBGPU ACTIVE");
+  await enterLab(page);
 }
 async function settle(page: Page, frames = 2) {
   const before = Number(await page.locator("canvas").getAttribute("data-frame"));
@@ -85,6 +87,10 @@ test("all 48 native WebGPU techniques render all 144 contexts without validation
     }
   }
   expect(hashes.size).toBeGreaterThan(130);
+  expect(await page.evaluate(() => window.lab.stats().cachedEffects)).toBeLessThanOrEqual(8);
+  await page.locator('button[data-effect="soft-shadows"]').click();
+  await settle(page);
+  expect((await pixels(page)).range).toBeGreaterThan(12);
   expect(errors).toEqual([]);
 });
 
@@ -204,7 +210,9 @@ test("mobile, device recovery, unavailable WebGPU, and the independent WebGL2 ed
   await settle(page);
   expect((await pixels(page)).range).toBeGreaterThan(12);
   await page.evaluate(() => window.lab.loseDevice());
-  await page.waitForTimeout(100);
+  await expect(page.locator("#boot-screen")).toHaveAttribute("data-status", "failed");
+  await expect(page.locator("#boot-summary")).toContainText("device lost");
+  await page.locator("#boot-retry").click();
   await ready(page);
   await settle(page);
   expect((await pixels(page)).backend).toBe("webgpu");
@@ -214,8 +222,9 @@ test("mobile, device recovery, unavailable WebGPU, and the independent WebGL2 ed
   await page.reload();
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "error");
   await expect(page.locator("#render-error")).toContainText("WebGPU is unavailable");
-  await page.locator(".edition-link").click();
+  await page.locator("#boot-other").click();
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await expect(page.locator("#engine")).toHaveText("WEBGL2 ACTIVE");
   expect(await page.locator("button[data-effect]").count()).toBe(40);
 });
@@ -241,6 +250,7 @@ test("WebGPU quality, fullscreen, and counterpart settings survive transitions",
   await page.selectOption("#art-style", "2");
   await page.locator(".edition-link").click();
   await expect(page.locator("#engine")).toHaveText("WEBGL2 ACTIVE");
+  await enterLab(page);
   await expect(page.locator("h1")).toHaveText("Water & refraction");
   await expect(page.locator("#parameter-1")).toHaveValue("77");
   await expect(page.locator("#art-style")).toHaveValue("2");

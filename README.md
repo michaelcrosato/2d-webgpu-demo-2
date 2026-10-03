@@ -8,6 +8,10 @@ The default **WebGPU edition** has 48 techniques, 144 example contexts, four liv
 
 The WebGPU page requests a device and uses native WGSL render/compute pipelines. It does not silently switch to WebGL. If your browser cannot provide an adapter, explicitly open the separate WebGL2 edition.
 
+Every visit begins with a plain **startup diagnostic screen**. It loads independently of the application bundle, reports your browser and build, checks the WebGPU adapter/device, verifies a small render-and-compute test against known output bytes, compiles the native pipelines, and reads back an actual frame from your selected demo. The lab waits for **Proceed to lab**; animation does not run behind this screen. If graphics initialization fails, **Proceed without GPU rendering** still lets you read the loaded lab. A missing application bundle keeps that button disabled and offers reload and the other edition.
+
+If anything hangs or fails, screenshot the diagnostic screen or use **Save diagnostic report** / **Copy diagnostic report**. The report includes the failed stage, GPU identity and capabilities, current effect/context/settings, completed checks, recent events, and loaded asset URLs. **Diagnostics** in the lab reopens the report and pauses frame submission. Device loss, compilation failures, and GPU work that fails to complete within 30 seconds stop rendering and reopen this screen; recovery requires a deliberate reload rather than repeated automatic device requests. These timeouts require the browser's JavaScript thread to remain responsive; an OS or browser-wide crash can only leave the last displayed stage as evidence.
+
 ![The native WebGPU lab](docs/webgpu-preview.png)
 
 ## Explore
@@ -104,9 +108,9 @@ Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compo
 6. **Effect/style:** material and camera effects finish before the optional style pass, preserving dissolve under pixel sampling. Tone mapping runs once at final output.
 7. **Present/export:** an RGBA8 output texture is presented to the canvas. PNG export copies that same texture to a row-aligned buffer and encodes its actual bytes, independently of presentation timing.
 
-Submissions are limited to two frames in flight to prevent unbounded GPU queues. FPS counts submitted frames under bounded scheduling, not isolated GPU execution time. Pass counts include render, compute, and presentation. Quality controls display resolution; compute fields use a fixed 256 × 160 grid.
+Submissions are limited to two frames in flight to prevent unbounded GPU queues; queue completion and output readback have 30-second deadlines. FPS counts submitted frames under bounded scheduling, not isolated GPU execution time. Pass counts include render, compute, and presentation. The default quality is Economy, with higher resolutions available explicitly. Compute fields use a fixed 256 × 160 grid.
 
-Scene and post-processing pipelines specialize the selected effect through a WGSL override constant, allowing the compiler to remove unused effect branches. They compile asynchronously on first use and are cached for subsequent visits. Pending compilation does not count as a rendered frame, and PNG export waits for the requested effect. The WebGPU sweep identifies each effect/context as a test step and bounds frame waits so a stalled scene produces a useful failure.
+Scene and post-processing pipelines specialize the selected effect through a WGSL override constant, allowing the compiler to remove unused effect branches. They compile asynchronously, one pipeline at a time, with a cache limited to eight effects. Rapid changes select the latest requested demo without adding every intermediate choice to the compilation queue. Pending compilation shows a visible preparation message and does not count as a rendered frame; PNG export waits for the requested effect. The WebGPU sweep identifies each effect/context as a test step and checks cache eviction as well as rendered output. Dedicated startup tests inject missing assets, missing APIs/adapters, device errors, compilation stalls, queue stalls, and rapid selection changes.
 
 ## Simulation boundaries
 

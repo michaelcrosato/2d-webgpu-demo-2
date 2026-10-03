@@ -447,6 +447,22 @@ h1 {
   background: #06151b;
   overflow: hidden;
 }
+#render-progress {
+  position: absolute;
+  inset: 0 0 60px;
+  display: grid;
+  place-content: center;
+  padding: 24px;
+  background: #06151be6;
+  color: #fff;
+  font:
+    14px / 1.6 ui-monospace,
+    monospace;
+  text-align: center;
+}
+#render-progress[hidden] {
+  display: none;
+}
 .stage canvas {
   display: block;
   width: 100%;

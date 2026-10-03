@@ -1,4 +1,5 @@
 import { createAtlas } from "../atlas";
+import { deadline, diagnosticCheck } from "../diagnostics";
 import { gameSceneShader } from "../game-scenes";
 import type { RenderState } from "../renderer";
 import { waterDefault, waterShader } from "../water";
@@ -36,6 +37,11 @@ export class WebGPURenderer {
   private sceneModule!: GPUShaderModule;
   private postModule!: GPUShaderModule;
   private effectPromises = new Map<number, Promise<void>>();
+  private compilationTail: Promise<void> = Promise.resolve();
+  private cachedEffects = new Map<number, true>();
+  private compilingEffect: number | null = null;
+  private completedFrames = 0;
+  private lastCompletion = 0;
   private pipelineError: unknown;
   private update!: GPUComputePipeline;
   private fieldUpdate!: GPUComputePipeline;
@@ -58,7 +64,21 @@ export class WebGPURenderer {
   private initialParticles!: Float32Array<ArrayBuffer>;
   private particleReset = false;
   get busy() {
+    if (this.pipelineError) throw this.pipelineError;
     return this.inFlight >= 2;
+  }
+  health() {
+    return {
+      inFlight: this.inFlight,
+      cachedEffects: this.cachedEffects.size,
+      compilingEffect: this.compilingEffect,
+      completedFrames: this.completedFrames,
+      lastCompletionMs: Math.round(this.lastCompletion),
+    };
+  }
+  async waitForIdle() {
+    await deadline(this.device.queue.onSubmittedWorkDone(), "WebGPU queue completion");
+    if (this.pipelineError) throw this.pipelineError;
   }
   private readonly gridWidth = 256;
   private readonly gridHeight = 160;
@@ -69,21 +89,52 @@ export class WebGPURenderer {
     onError: (error: unknown) => void,
     initialEffect = 0,
   ) {
-    if (!navigator.gpu)
-      throw new Error(
-        "WebGPU is unavailable in this browser. Use a browser with WebGPU enabled on HTTPS or localhost. The separate WebGL2 edition remains available.",
+    await diagnosticCheck("webgpu-api", "Secure context and WebGPU API", () => {
+      if (!window.isSecureContext)
+        throw new Error("WebGPU requires HTTPS or localhost; this page is not a secure context.");
+      if (!navigator.gpu)
+        throw new Error(
+          "WebGPU is unavailable in this browser. Check graphics acceleration or open the separate WebGL2 diagnostics.",
+        );
+    });
+    const adapter = await diagnosticCheck("adapter", "WebGPU adapter request", async () => {
+      const selected = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+      if (!selected)
+        throw new Error(
+          "This browser did not provide a WebGPU adapter. Check browser graphics settings or open the separate WebGL2 edition.",
+        );
+      return selected;
+    });
+    window.boot.detail(
+      "GPU",
+      `${adapter.info.vendor || "vendor hidden"} / ${adapter.info.architecture || "architecture hidden"} / ${adapter.info.device || "device hidden"} / ${adapter.info.description || "description hidden"}`,
+    );
+    window.boot.detail("Software adapter", adapter.info.isFallbackAdapter);
+    window.boot.step(
+      "adapter-mode",
+      "Adapter acceleration",
+      adapter.info.isFallbackAdapter ? "warning" : "passed",
+      adapter.info.isFallbackAdapter
+        ? "Software GPU: rendering may be slow. Check browser graphics acceleration."
+        : "Adapter is not marked as fallback",
+    );
+    window.boot.detail(
+      "Adapter capabilities",
+      `max texture ${adapter.limits.maxTextureDimension2D}; storage ${adapter.limits.maxStorageBufferBindingSize}; workgroup ${adapter.limits.maxComputeInvocationsPerWorkgroup}`,
+    );
+    window.boot.detail("Adapter features", [...adapter.features].join(", ") || "core only");
+    const device = await diagnosticCheck("device", "WebGPU device request", () => adapter.requestDevice());
+    let renderer: WebGPURenderer;
+    try {
+      renderer = await diagnosticCheck(
+        "resources",
+        "WebGPU canvas, buffers and generated atlas",
+        () => new WebGPURenderer(canvas, device, adapter.info),
       );
-    let adapter: GPUAdapter | null = null;
-    for (let i = 0; i < 3 && !adapter; i++) {
-      adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-      if (!adapter) await new Promise((resolve) => setTimeout(resolve, 200));
+    } catch (error) {
+      device.destroy();
+      throw error;
     }
-    if (!adapter)
-      throw new Error(
-        "This browser did not provide a WebGPU adapter. Check browser graphics settings or open the separate WebGL2 edition.",
-      );
-    const device = await adapter.requestDevice();
-    const renderer = new WebGPURenderer(canvas, device, adapter.info);
     device.addEventListener("uncapturederror", (event) => {
       if (!renderer.closed) onError((event as GPUUncapturedErrorEvent).error);
     });
@@ -91,12 +142,112 @@ export class WebGPURenderer {
       if (!renderer.closed) onLost(`WebGPU device lost: ${info.message || info.reason}`);
     });
     try {
+      await diagnosticCheck("gpu-smoke", "Small native render + compute + mapped readback test", () =>
+        renderer.smokeTest(),
+      );
       await renderer.initialize(initialEffect);
     } catch (error) {
       renderer.dispose();
       throw error;
     }
     return renderer;
+  }
+  private async smokeTest() {
+    const device = this.device;
+    device.pushErrorScope("validation");
+    const texture = device.createTexture({
+      size: [16, 16],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const pixels = device.createBuffer({
+      size: 256 * 16,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const output = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const readback = device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    let smokeError: unknown;
+    try {
+      const module = device.createShaderModule({
+        label: "Diagnostic smoke test",
+        code: `
+        @group(0) @binding(0) var<storage, read_write> result: array<u32>;
+        @compute @workgroup_size(1) fn computeTest() { result[0] = 42u; }
+        @vertex fn vertexTest(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+          let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u)); return vec4f(p * 2.0 - vec2f(1), 0, 1);
+        }
+        @fragment fn fragmentTest() -> @location(0) vec4f { return vec4f(0.2, 0.4, 0.8, 1); }
+      `,
+      });
+      const renderPipeline = await deadline(
+        device.createRenderPipelineAsync({
+          layout: "auto",
+          vertex: { module, entryPoint: "vertexTest" },
+          fragment: { module, entryPoint: "fragmentTest", targets: [{ format: "rgba8unorm" }] },
+        }),
+        "Diagnostic render pipeline",
+      );
+      const computePipeline = await deadline(
+        device.createComputePipelineAsync({ layout: "auto", compute: { module, entryPoint: "computeTest" } }),
+        "Diagnostic compute pipeline",
+      );
+      const encoder = device.createCommandEncoder();
+      const render = encoder.beginRenderPass({
+        colorAttachments: [{ view: texture.createView(), loadOp: "clear", storeOp: "store" }],
+      });
+      render.setPipeline(renderPipeline);
+      render.draw(3);
+      render.end();
+      const compute = encoder.beginComputePass();
+      compute.setPipeline(computePipeline);
+      compute.setBindGroup(
+        0,
+        device.createBindGroup({
+          layout: computePipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: output } }],
+        }),
+      );
+      compute.dispatchWorkgroups(1);
+      compute.end();
+      encoder.copyTextureToBuffer({ texture }, { buffer: pixels, bytesPerRow: 256 }, [16, 16]);
+      encoder.copyBufferToBuffer(output, 0, readback, 0, 4);
+      device.queue.submit([encoder.finish()]);
+      await deadline(
+        Promise.all([pixels.mapAsync(GPUMapMode.READ), readback.mapAsync(GPUMapMode.READ)]),
+        "Diagnostic GPU readback",
+      );
+      const rgba = new Uint8Array(pixels.getMappedRange()).slice(0, 4);
+      const answer = new Uint32Array(readback.getMappedRange())[0];
+      if (
+        answer !== 42 ||
+        Math.abs(rgba[0] - 51) > 1 ||
+        Math.abs(rgba[1] - 102) > 1 ||
+        Math.abs(rgba[2] - 204) > 1 ||
+        rgba[3] !== 255
+      )
+        throw new Error(
+          `GPU smoke test returned incorrect bytes: RGBA ${rgba.join(",")}; compute ${answer}.`,
+        );
+      window.boot.detail("GPU smoke result", `RGBA ${rgba.join(",")}; compute ${answer} (expected 42)`);
+    } catch (error) {
+      smokeError = error;
+    } finally {
+      texture.destroy();
+      pixels.destroy();
+      output.destroy();
+      readback.destroy();
+    }
+    const validation = await deadline(device.popErrorScope(), "Diagnostic validation result").catch(
+      (error: unknown) => {
+        smokeError ??= error;
+        return null;
+      },
+    );
+    if (smokeError) throw smokeError;
+    if (validation) throw new Error(`GPU smoke-test validation: ${validation.message}`);
   }
   private constructor(
     readonly canvas: HTMLCanvasElement,
@@ -176,12 +327,14 @@ export class WebGPURenderer {
       );
   }
   private async module(label: string, code: string) {
-    const module = this.device.createShaderModule({ label, code });
-    const info = await module.getCompilationInfo();
-    const errors = info.messages.filter((message) => message.type === "error");
-    if (errors.length)
-      throw new Error(`${label}: ${errors.map((e) => `line ${e.lineNum}: ${e.message}`).join("\n")}`);
-    return module;
+    return diagnosticCheck(`shader:${label}`, label, async () => {
+      const module = this.device.createShaderModule({ label, code });
+      const info = await module.getCompilationInfo();
+      const errors = info.messages.filter((message) => message.type === "error");
+      if (errors.length)
+        throw new Error(`${label}: ${errors.map((e) => `line ${e.lineNum}: ${e.message}`).join("\n")}`);
+      return module;
+    });
   }
   private async initialize(initialEffect: number) {
     const layout = this.device.createPipelineLayout({
@@ -208,55 +361,66 @@ export class WebGPURenderer {
     ] as const)
       this.pipelines.set(
         name,
-        await this.device.createRenderPipelineAsync({
-          label: name,
-          layout,
-          vertex: { module, entryPoint: "fullscreen" },
-          fragment: { module, entryPoint: entry, targets: [{ format }] },
-          primitive: { topology: "triangle-list" },
-        }),
+        await diagnosticCheck(`pipeline:${name}`, `${name} render pipeline`, () =>
+          this.device.createRenderPipelineAsync({
+            label: name,
+            layout,
+            vertex: { module, entryPoint: "fullscreen" },
+            fragment: { module, entryPoint: entry, targets: [{ format }] },
+            primitive: { topology: "triangle-list" },
+          }),
+        ),
       );
     for (const alpha of [false, true])
       this.pipelines.set(
         alpha ? "sprites" : "particles",
-        await this.device.createRenderPipelineAsync({
-          label: "Instanced particle quads",
-          layout,
-          vertex: { module: particle, entryPoint: "particleVertex" },
-          fragment: {
-            module: particle,
-            entryPoint: "particleFragment",
-            targets: [
-              {
-                format: "rgba16float",
-                blend: {
-                  color: {
-                    srcFactor: "src-alpha",
-                    dstFactor: alpha ? "one-minus-src-alpha" : "one",
-                    operation: "add",
+        await diagnosticCheck(
+          `pipeline:${alpha ? "sprites" : "particles"}`,
+          `Instanced ${alpha ? "sprite" : "particle"} pipeline`,
+          () =>
+            this.device.createRenderPipelineAsync({
+              label: "Instanced particle quads",
+              layout,
+              vertex: { module: particle, entryPoint: "particleVertex" },
+              fragment: {
+                module: particle,
+                entryPoint: "particleFragment",
+                targets: [
+                  {
+                    format: "rgba16float",
+                    blend: {
+                      color: {
+                        srcFactor: "src-alpha",
+                        dstFactor: alpha ? "one-minus-src-alpha" : "one",
+                        operation: "add",
+                      },
+                      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+                    },
                   },
-                  alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-                },
+                ],
               },
-            ],
-          },
-          primitive: { topology: "triangle-strip" },
-        }),
+              primitive: { topology: "triangle-strip" },
+            }),
+        ),
       );
-    this.update = await this.device.createComputePipelineAsync({
-      label: "64 agents per workgroup",
-      layout: this.device.createPipelineLayout({
-        bindGroupLayouts: [this.uniformLayout, this.computeLayout],
+    this.update = await diagnosticCheck("particle-compute", "Agent simulation pipeline", () =>
+      this.device.createComputePipelineAsync({
+        label: "64 agents per workgroup",
+        layout: this.device.createPipelineLayout({
+          bindGroupLayouts: [this.uniformLayout, this.computeLayout],
+        }),
+        compute: { module: update, entryPoint: "updateParticles" },
       }),
-      compute: { module: update, entryPoint: "updateParticles" },
-    });
-    this.fieldUpdate = await this.device.createComputePipelineAsync({
-      label: "8 × 8 field workgroups",
-      layout: this.device.createPipelineLayout({
-        bindGroupLayouts: [this.uniformLayout, this.computeLayout],
+    );
+    this.fieldUpdate = await diagnosticCheck("field-compute", "Grid simulation pipeline", () =>
+      this.device.createComputePipelineAsync({
+        label: "8 × 8 field workgroups",
+        layout: this.device.createPipelineLayout({
+          bindGroupLayouts: [this.uniformLayout, this.computeLayout],
+        }),
+        compute: { module: fieldModule, entryPoint: "updateField" },
       }),
-      compute: { module: fieldModule, entryPoint: "updateField" },
-    });
+    );
     this.blurComputeLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
@@ -267,13 +431,15 @@ export class WebGPURenderer {
         },
       ],
     });
-    this.tiledBlur = await this.device.createComputePipelineAsync({
-      label: "Tiled Gaussian compute blur",
-      layout: this.device.createPipelineLayout({
-        bindGroupLayouts: [this.uniformLayout, this.blurComputeLayout],
+    this.tiledBlur = await diagnosticCheck("blur-compute", "Tiled compute blur pipeline", () =>
+      this.device.createComputePipelineAsync({
+        label: "Tiled Gaussian compute blur",
+        layout: this.device.createPipelineLayout({
+          bindGroupLayouts: [this.uniformLayout, this.blurComputeLayout],
+        }),
+        compute: { module: blurModule, entryPoint: "tiledBlur" },
       }),
-      compute: { module: blurModule, entryPoint: "tiledBlur" },
-    });
+    );
     await this.prepareEffect(initialEffect);
     this.context.configure({
       device: this.device,
@@ -282,37 +448,63 @@ export class WebGPURenderer {
     });
   }
   private prepareEffect(effect: number): Promise<void> {
+    if (this.pipelines.has(`scene:${effect}`)) return Promise.resolve();
     const existing = this.effectPromises.get(effect);
     if (existing) return existing;
     // Compile only effects the visitor opens. Cache by effect, rather than replacing
     // the active pipeline when an asynchronous compilation happens to finish.
-    const pending = Promise.all(
-      (
-        [
+    const pending = this.compilationTail
+      .then(async () => {
+        if (this.closed) throw new Error("Renderer was closed before compilation.");
+        this.compilingEffect = effect;
+        const pipelines: Array<readonly [string, GPURenderPipeline]> = [];
+        for (const [name, module, entryPoint, format] of [
           ["scene", this.sceneModule, "scene", "rgba16float"],
           ["post-hdr", this.postModule, "post", "rgba16float"],
           ["post", this.postModule, "post", "rgba8unorm"],
-        ] as const
-      ).map(async ([name, module, entryPoint, format]) => {
-        const key = `${name}:${effect}`;
-        const pipeline = await this.device.createRenderPipelineAsync({
-          label: key,
-          layout: this.renderLayout,
-          vertex: { module, entryPoint: "fullscreen" },
-          fragment: { module, entryPoint, constants: { effectId: effect }, targets: [{ format }] },
-          primitive: { topology: "triangle-list" },
-        });
-        return [key, pipeline] as const;
-      }),
-    )
-      .then((pipelines) => {
-        if (!this.closed) for (const [key, pipeline] of pipelines) this.pipelines.set(key, pipeline);
+        ] as const) {
+          const key = `${name}:${effect}`;
+          const pipeline = await diagnosticCheck(
+            `effect:${effect}:${name}`,
+            `Effect ${effect + 1}: ${name} pipeline`,
+            () =>
+              this.device.createRenderPipelineAsync({
+                label: key,
+                layout: this.renderLayout,
+                vertex: { module, entryPoint: "fullscreen" },
+                fragment: { module, entryPoint, constants: { effectId: effect }, targets: [{ format }] },
+                primitive: { topology: "triangle-list" },
+              }),
+          );
+          if (this.closed) throw new Error("Renderer was closed during compilation.");
+          pipelines.push([key, pipeline]);
+        }
+        if (!this.closed) {
+          for (const [key, pipeline] of pipelines) this.pipelines.set(key, pipeline);
+          this.cachedEffects.set(effect, true);
+          while (this.cachedEffects.size > 8) {
+            const oldest = [...this.cachedEffects.keys()].find(
+              (key) => key !== this.previousEffect && key !== effect,
+            )!;
+            this.cachedEffects.delete(oldest);
+            for (const name of ["scene", "post", "post-hdr"]) this.pipelines.delete(`${name}:${oldest}`);
+          }
+          window.boot.detail(
+            "Pipeline cache",
+            `${this.cachedEffects.size}/8 effects; one compilation at a time`,
+          );
+        }
       })
       .catch((error: unknown) => {
         if (!this.closed) this.pipelineError = error;
         throw error;
+      })
+      .finally(() => {
+        this.effectPromises.delete(effect);
+        this.compilingEffect = null;
       });
     this.effectPromises.set(effect, pending);
+    this.compilationTail = pending.catch(() => {});
     return pending;
   }
   private target(width: number, height: number, format: GPUTextureFormat = "rgba16float"): Target {
@@ -484,7 +676,9 @@ export class WebGPURenderer {
     if (this.closed) return false;
     if (this.pipelineError) throw this.pipelineError;
     if (!this.pipelines.has(`scene:${state.effect}`)) {
-      if (!this.effectPromises.has(state.effect)) void this.prepareEffect(state.effect).catch(() => {});
+      // A rapid click only changes the next requested effect. Do not enqueue
+      // dozens of obsolete compilations while the GPU driver is still working.
+      if (!this.effectPromises.size) void this.prepareEffect(state.effect).catch(() => {});
       return false;
     }
     this.resize(state.quality);
@@ -493,6 +687,8 @@ export class WebGPURenderer {
     this.computePasses = 0;
     const dt = Math.max(0, Math.min(0.05, state.time - this.previousTime));
     this.previousTime = state.time;
+    this.cachedEffects.delete(state.effect);
+    this.cachedEffects.set(state.effect, true);
     if (state.effect !== this.previousEffect || state.context !== this.previousContext) {
       this.historyReset = true;
       this.fieldReset = true;
@@ -679,13 +875,17 @@ export class WebGPURenderer {
     );
     this.device.queue.submit([encoder.finish()]);
     this.inFlight++;
-    this.device.queue
-      .onSubmittedWorkDone()
+    deadline(
+      this.device.queue.onSubmittedWorkDone(),
+      `GPU frame completion for effect ${state.effect + 1}, context ${state.context}`,
+    )
       .then(() => {
         this.inFlight = Math.max(0, this.inFlight - 1);
+        this.completedFrames++;
+        this.lastCompletion = performance.now();
       })
-      .catch(() => {
-        this.inFlight = 0;
+      .catch((error: unknown) => {
+        if (!this.closed) this.pipelineError = error;
       });
     this.historyReset = false;
     return true;
@@ -705,17 +905,20 @@ export class WebGPURenderer {
       output.height,
     ]);
     this.device.queue.submit([encoder.finish()]);
-    await buffer.mapAsync(GPUMapMode.READ);
-    const mapped = new Uint8Array(buffer.getMappedRange());
-    const data = new Uint8Array(output.width * output.height * 4);
-    for (let row = 0; row < output.height; row++)
-      data.set(
-        mapped.subarray(row * bytesPerRow, row * bytesPerRow + output.width * 4),
-        row * output.width * 4,
-      );
-    buffer.unmap();
-    buffer.destroy();
-    return { data, width: output.width, height: output.height };
+    try {
+      await deadline(buffer.mapAsync(GPUMapMode.READ), "WebGPU output pixel readback");
+      const mapped = new Uint8Array(buffer.getMappedRange());
+      const data = new Uint8Array(output.width * output.height * 4);
+      for (let row = 0; row < output.height; row++)
+        data.set(
+          mapped.subarray(row * bytesPerRow, row * bytesPerRow + output.width * 4),
+          row * output.width * 4,
+        );
+      buffer.unmap();
+      return { data, width: output.width, height: output.height };
+    } finally {
+      buffer.destroy();
+    }
   }
   async capture(state: RenderState) {
     await this.prepareEffect(state.effect);
@@ -739,6 +942,7 @@ export class WebGPURenderer {
     this.closed = true;
     this.pipelines.clear();
     this.effectPromises.clear();
+    this.cachedEffects.clear();
     this.targets.forEach((t) => {
       t.texture.destroy();
     });

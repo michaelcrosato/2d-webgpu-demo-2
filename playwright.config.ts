@@ -25,7 +25,7 @@ export default defineConfig({
     },
     {
       name: "webgpu",
-      testMatch: "webgpu.spec.ts",
+      testMatch: ["webgpu.spec.ts", "startup.spec.ts"],
       use: {
         launchOptions: {
           headless: true,

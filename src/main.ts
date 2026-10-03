@@ -1,5 +1,5 @@
 import { type Effect, styleOptions } from "./catalog";
-import type { LabDiagnostics } from "./diagnostics";
+import { diagnosticCheck, type LabDiagnostics } from "./diagnostics";
 import { categories, edition, effects, isWebGPU } from "./edition";
 import { gameStudies } from "./game-scenes";
 import { Renderer, type RenderState } from "./renderer";
@@ -44,6 +44,8 @@ let selected = 0;
 let paused = reducedMotion;
 let tourTimer: ReturnType<typeof setInterval> | undefined;
 let renderer: Renderer | WebGPURenderer | undefined;
+let labRunning = false;
+let renderingSelection = "";
 let previousFrame = performance.now();
 let frameCounter = 0;
 let fpsStart = previousFrame;
@@ -59,7 +61,7 @@ const state: RenderState = {
   impact: -100,
   style: 0,
   compare: -1,
-  quality: 1,
+  quality: 0,
   water: [...waterDefault],
   waterPreset: 0,
 };
@@ -99,6 +101,17 @@ app.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const canvas = $<HTMLCanvasElement>("#canvas");
+const renderProgress = document.createElement("div");
+renderProgress.id = "render-progress";
+renderProgress.setAttribute("role", "status");
+renderProgress.hidden = true;
+$("#stage").append(renderProgress);
+const diagnosticButton = document.createElement("button");
+diagnosticButton.id = "open-diagnostics";
+diagnosticButton.className = "text-button";
+diagnosticButton.textContent = "Diagnostics";
+$(".top-actions").prepend(diagnosticButton);
+diagnosticButton.addEventListener("click", () => window.boot.show());
 const waterStudio = document.createElement("section");
 waterStudio.id = "water-studio";
 waterStudio.className = "water-studio";
@@ -319,7 +332,7 @@ function readURL() {
   state.style = Math.min(9, Math.max(0, Math.round(Number(params.get("style")) || 0)));
   state.quality = params.has("quality")
     ? Math.min(2, Math.max(0, Math.round(Number(params.get("quality")) || 0)))
-    : 1;
+    : 0;
   const values = params.get("values")?.split(",").map(Number);
   state.waterPreset = Math.min(3, Math.max(0, Math.round(Number(params.get("setting")) || 0)));
   const water = params.get("water")?.split(",").map(Number);
@@ -559,6 +572,7 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
+  if (!$<HTMLElement>("#boot-screen").hidden) return;
   if (event.key === "Escape" && !$<HTMLDialogElement>("#help-dialog").open) {
     setLibrary(false);
     return;
@@ -616,6 +630,21 @@ function showError(error: unknown) {
   $("#render-error").hidden = false;
   text("#engine", "GPU UNAVAILABLE");
   app.dataset.ready = "error";
+  labRunning = false;
+  stopTour();
+  renderProgress.hidden = true;
+  window.boot.step("failure", "Graphics stopped", "failed", message);
+  if (renderer instanceof WebGPURenderer)
+    window.boot.detail("Renderer state", JSON.stringify(renderer.health()));
+  renderer?.dispose();
+  renderer = undefined;
+  window.boot.detail(
+    "Demo at failure",
+    `${effects[selected].id}, context ${state.context}, quality ${state.quality}, style ${state.style}`,
+  );
+  window.boot.fail(error);
+  window.boot.detail("Scene settings", JSON.stringify(state));
+  window.boot.detail("URL", location.href);
   console.error(error);
 }
 let initialization = 0;
@@ -640,6 +669,7 @@ function exposeDiagnostics() {
     },
     stats() {
       return {
+        ...(renderer instanceof WebGPURenderer ? renderer.health() : {}),
         renderPasses: renderer?.drawCalls ?? 0,
         computePasses: renderer instanceof WebGPURenderer ? renderer.computePasses : 0,
         instances: renderer?.particleCount ?? 0,
@@ -663,21 +693,18 @@ async function initialize() {
           canvas,
           (message) => {
             if (pageSuspended) return;
-            console.warn(message);
-            renderer?.dispose();
-            renderer = undefined;
-            text("#render-error", `${message} — reconnecting…`);
-            $("#render-error").hidden = false;
-            void initialize();
+            showError(new Error(message));
           },
           (error) => {
-            renderer?.dispose();
-            renderer = undefined;
             showError(error);
           },
           state.effect,
         )
-      : new Renderer(canvas);
+      : await diagnosticCheck(
+          "webgl-init",
+          "WebGL2 context, shader programs and atlas",
+          () => new Renderer(canvas),
+        );
     if (generation !== initialization || pageSuspended) {
       created.dispose();
       return;
@@ -686,23 +713,33 @@ async function initialize() {
     $("#render-error").hidden = true;
     text("#engine", `${edition.toUpperCase()} ACTIVE`);
     text("#precision", isWebGPU ? "WGSL / RGBA16F" : renderer.hdr ? "RGBA16F / HDR" : "RGBA8 / LDR");
-    app.dataset.ready = "true";
     exposeDiagnostics();
+    if (created instanceof Renderer) {
+      const gl = created.gl;
+      const debug = gl.getExtension("WEBGL_debug_renderer_info");
+      window.boot.detail(
+        "GPU",
+        debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      );
+      window.boot.detail("Graphics version", gl.getParameter(gl.VERSION));
+    }
+    return created;
   } catch (error) {
     showError(error);
+    throw error;
   }
 }
 canvas.addEventListener("webglcontextlost", (event) => {
   if (isWebGPU) return;
   event.preventDefault();
-  renderer = undefined;
   showError(new Error("GPU context lost. Waiting for the browser to restore it…"));
 });
 canvas.addEventListener("webglcontextrestored", () => {
-  if (!isWebGPU) void initialize();
+  if (!isWebGPU) void runStartupDiagnostics().catch(showError);
 });
 window.addEventListener("pagehide", () => {
   pageSuspended = true;
+  labRunning = false;
   initialization++;
   renderer?.dispose();
   renderer = undefined;
@@ -710,27 +747,118 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) {
     pageSuspended = false;
-    void initialize();
+    void runStartupDiagnostics().catch(showError);
   }
 });
 readURL();
 syncPlayback();
-initialize();
-function frame(now: number) {
-  if (renderer instanceof WebGPURenderer && renderer.busy) {
-    requestAnimationFrame(frame);
-    return;
+window.boot.onShow(() => {
+  labRunning = false;
+  stopTour();
+  if (window.boot.status === "failed" && renderer) {
+    if (renderer instanceof WebGPURenderer)
+      window.boot.detail("Renderer state", JSON.stringify(renderer.health()));
+    renderer.dispose();
+    renderer = undefined;
+    app.dataset.ready = "error";
+    text("#render-error", String(window.boot.report().failure));
+    $("#render-error").hidden = false;
   }
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+});
+window.boot.onProceed(() => {
+  labRunning = !!renderer && window.boot.status !== "failed";
+  if (window.boot.status === "failed") {
+    app.dataset.ready = "error";
+    text("#engine", "GPU UNAVAILABLE");
+    text("#render-error", String(window.boot.report().failure));
+    $("#render-error").hidden = false;
+  }
+  previousFrame = fpsStart = performance.now();
+  fpsFrames = 0;
+});
+
+export async function runStartupDiagnostics() {
+  try {
+    window.boot.begin();
+    window.boot.detail("Edition", edition);
+    window.boot.detail(
+      "Selected demo",
+      `${effects[selected].id} / context ${state.context} / quality ${state.quality}`,
+    );
+    window.boot.detail(
+      "Assets",
+      `${effects.length} techniques, native shaders, generated sprite atlas, stylesheet loaded; external fonts are optional`,
+    );
+    const active = await initialize();
+    if (!active) return;
+    const pixels = await diagnosticCheck(
+      "first-frame",
+      "Selected demo: render, GPU completion and real pixel readback",
+      async () => {
+        if (active.render(state) === false) throw new Error("The selected demo pipeline was not ready.");
+        if (active instanceof WebGPURenderer) {
+          await active.waitForIdle();
+          return active.readPixels();
+        }
+        const gl = active.gl;
+        const data = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        if (gl.getError() !== gl.NO_ERROR) throw new Error("WebGL2 failed its first-frame pixel readback.");
+        // WebGL readback is bottom-up; orient the diagnostic preview like the canvas.
+        const row = canvas.width * 4;
+        const oriented = new Uint8Array(data.length);
+        for (let y = 0; y < canvas.height; y++)
+          oriented.set(data.subarray(y * row, (y + 1) * row), (canvas.height - 1 - y) * row);
+        return { data: oriented, width: canvas.width, height: canvas.height };
+      },
+    );
+    if (renderer !== active || window.boot.status === "failed")
+      throw new Error("Graphics initialization was interrupted. See the failed stage above.");
+    if (!pixels.data.some((value, i) => i % 4 !== 3 && value > 0))
+      throw new Error("The first demo produced only black pixels.");
+    window.boot.preview(pixels);
+    window.boot.detail(
+      "Verified frame",
+      `${pixels.width} × ${pixels.height}; real GPU bytes, ${active.drawCalls} render passes`,
+    );
+    frameCounter++;
+    canvas.dataset.frame = String(frameCounter);
+    app.dataset.ready = "true";
+    window.boot.complete();
+  } catch (error) {
+    showError(error);
+    throw error;
+  }
+}
+
+function frame(now: number) {
   const elapsed = Math.min((now - previousFrame) / 1000, 0.05);
   previousFrame = now;
-  if (renderer && !document.hidden) {
-    if (!paused) state.time += elapsed * state.params[2] * 2;
+  if (labRunning && renderer && !document.hidden) {
     try {
-      const submitted = renderer.render(state);
-      if (submitted === false) {
+      if (renderer instanceof WebGPURenderer && renderer.busy) {
         requestAnimationFrame(frame);
         return;
       }
+      const selection = `${selected}/${state.context}/${state.quality}/${state.style}`;
+      if (selection !== renderingSelection) {
+        renderingSelection = selection;
+        window.boot.detail(
+          "Selected demo",
+          `${effects[selected].id} / context ${state.context} / quality ${state.quality} / style ${state.style}`,
+        );
+        window.boot.record(`Selected ${effects[selected].id}, context ${state.context}.`);
+      }
+      const submitted = renderer.render(state);
+      if (submitted === false) {
+        renderProgress.textContent = `Preparing ${effects[selected].name}… You can choose another demo while this finishes.`;
+        renderProgress.hidden = false;
+        requestAnimationFrame(frame);
+        return;
+      }
+      renderProgress.hidden = true;
+      if (!paused) state.time += elapsed * state.params[2] * 2;
       frameCounter++;
       fpsFrames++;
       canvas.dataset.frame = String(frameCounter);
@@ -745,8 +873,6 @@ function frame(now: number) {
         fpsStart = now;
       }
     } catch (error) {
-      renderer.dispose();
-      renderer = undefined;
       showError(error);
     }
   }

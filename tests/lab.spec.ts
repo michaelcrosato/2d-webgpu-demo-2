@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { effects } from "../src/catalog";
+import { enterLab } from "./start-lab";
 
 async function settle(page: Page) {
   const before = await page.locator("#canvas").getAttribute("data-frame");
@@ -48,6 +49,7 @@ test("all 40 effects render all 120 contexts without GPU errors", async ({ page 
   });
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await page.selectOption("#quality", "0");
   const hashes = new Set<number>();
   for (const effect of effects) {
@@ -73,6 +75,7 @@ test("sliders affect rendered pixels, comparison works, and styles combine", asy
   test.setTimeout(600000);
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await page.locator("#pause").click();
   for (const effect of effects.filter(
     (e) =>
@@ -127,6 +130,7 @@ test("pause freezes motion, pointer lights change pixels, reset and links restor
 }) => {
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await page.locator("#pause").click();
   await settle(page);
   const still = await pixels(page);
@@ -141,6 +145,7 @@ test("pause freezes motion, pointer lights change pixels, reset and links restor
   await page.locator('button[data-context="2"]').click();
   const url = page.url();
   await page.reload();
+  await enterLab(page);
   await expect(page.locator("#parameter-0")).toHaveValue("87");
   await expect(page.locator("#art-style")).toHaveValue("4");
   await expect(page.locator("#tab-2")).toHaveAttribute("aria-selected", "true");
@@ -159,6 +164,7 @@ test("lessons, prompt copy, PNG capture, and keyboard navigation work", async ({
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await page.locator('[data-lesson="technique"]').click();
   await expect(page.locator("#code-snippet")).toContainText("softShadow");
   await page.locator('[data-lesson="prompt"]').click();
@@ -187,6 +193,7 @@ test("mobile, reduced motion, unsupported GPU, and context restoration", async (
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/webgl2.html");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await expect(page.locator("#pause")).toHaveAttribute("aria-label", "Play animation");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.locator("#sidebar")).toHaveAttribute("inert", "");
@@ -207,6 +214,7 @@ test("mobile, reduced motion, unsupported GPU, and context restoration", async (
     setTimeout(() => extension?.restoreContext(), 200);
   });
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await settle(page);
   expect((await pixels(page)).error).toBe(0);
   await page.addInitScript(() => {
@@ -235,6 +243,7 @@ test("RGBA8 fallback, quality controls, fullscreen, and tour work", async ({ pag
   });
   await page.goto("/webgl2.html#effect=bloom");
   await expect(page.locator("#app")).toHaveAttribute("data-ready", "true");
+  await enterLab(page);
   await expect(page.locator("#precision")).toHaveText("RGBA8 / LDR");
   await settle(page);
   expect((await pixels(page)).error).toBe(0);
