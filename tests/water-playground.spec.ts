@@ -147,10 +147,13 @@ test("water dragging, diving, camera following, reset, saved links, and mobile s
   await page.mouse.move(bounds.x + bounds.width * 0.65, bounds.y + bounds.height * 0.4, { steps: 6 });
   await expect.poll(async () => (await water(page)).position[0], { timeout: 60000 }).toBeGreaterThan(0.05);
   await page.mouse.up();
-  const address = page.url();
+  await page.locator("#share").click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("view=2");
+  const address = await page.evaluate(() => navigator.clipboard.readText());
   expect(address).toContain("view=2");
   expect(address).toContain("object=");
   const position = new URLSearchParams(new URL(address).hash.slice(1)).get("object")!.split(",").map(Number);
+  await page.goto(address);
   await page.reload();
   await enterLab(page);
   expect((await water(page)).view).toBe(2);
