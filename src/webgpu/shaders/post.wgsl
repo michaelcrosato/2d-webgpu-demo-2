@@ -45,7 +45,7 @@ fn artStyle(original: vec3f, uv: vec2f, s: i32, amount: f32, scale: f32, detail:
   return mix(original, c, amount);
 }
 @fragment fn post(input: VertexOutput) -> @location(0) vec4f {
-  let uv = input.uv; let a = g.params; let e = select(g.config.x, -1, g.flags.z > 0.5); var c = sampleScene(uv);
+  let uv = input.uv; let a = g.params; let e = select(effectId, -1, g.flags.z > 0.5); var c = sampleScene(uv);
   if (e == 10) {
     c=waterMaterial(uv,waterWaves(uv,waterMode()));
   }

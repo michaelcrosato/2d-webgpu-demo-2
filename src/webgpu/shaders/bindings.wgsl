@@ -1,3 +1,5 @@
+// Fixed per render pipeline so unused effect branches can be eliminated.
+override effectId: i32 = 0;
 @group(1) @binding(0) var source: texture_2d<f32>;
 @group(1) @binding(1) var blurred: texture_2d<f32>;
 @group(1) @binding(2) var baseline: texture_2d<f32>;

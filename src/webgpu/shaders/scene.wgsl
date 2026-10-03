@@ -3,7 +3,7 @@ fn shapeField(p: vec2f) -> f32 {
     return min(circle(p - vec2f(-0.64, 0.20), 0.28), min(box(p - vec2f(0.55, -0.12), vec2f(0.24)) - 0.03, circle(p - vec2f(0.05, 0.55), 0.19)));
   }
   if (g.config.y == 1) {
-    return gameObstacles(p,g.config.x);
+    return gameObstacles(p,effectId);
   }
   let q = vec2f(fm(p.x + 0.23, 0.46) - 0.23, p.y);
   return box(q - vec2f(0, -0.37), vec2f(0.17, 0.26));
@@ -19,7 +19,7 @@ fn softShadow(p: vec2f, light: vec2f, softness: f32) -> f32 {
   }
   return clamp(result, 0.0, 1.0);
 }
-fn relief(p: vec2f) -> f32 { if(g.config.y==1 && g.config.x==1){return max(0.0,-gameSubject(p,1))*2.0+noise(p*(12.0+g.params.y*32.0))*0.06;}return 0.12 * sin(p.x * (5.0 + g.params.y * 22.0)) * cos(p.y * 11.0) + 0.35 * exp(-dot(p, p) * 5.0); }
+fn relief(p: vec2f) -> f32 { if(g.config.y==1 && effectId==1){return max(0.0,-gameSubject(p,1))*2.0+noise(p*(12.0+g.params.y*32.0))*0.06;}return 0.12 * sin(p.x * (5.0 + g.params.y * 22.0)) * cos(p.y * 11.0) + 0.35 * exp(-dot(p, p) * 5.0); }
 fn abstractScene(p: vec2f, e: i32) -> vec3f {
   var color = vec3f(0.025, 0.065, 0.08) + vec3f(0.012, 0.022, 0.025) * p.y;
   let grid = abs(fract(p * 5.0) - vec2f(0.5));
@@ -108,12 +108,12 @@ fn city(p: vec2f, e: i32) -> vec3f {
 }
 @fragment fn scene(input: VertexOutput) -> @location(0) vec4f {
   let uv = input.uv; let p = coords(uv); let a = g.params;
-  let e = select(-1, g.config.x, g.config.z == 1);
-  var color = abstractScene(p, g.config.x);
-  if (g.config.y == 1) { color = gameScene(p,g.config.x,g.config.z); }
+  let e = select(-1, effectId, g.config.z == 1);
+  var color = abstractScene(p, effectId);
+  if (g.config.y == 1) { color = gameScene(p,effectId,g.config.z); }
   if (g.config.y == 2) { color = city(p, e); }
-  if ((g.config.x == 16 || g.config.x == 17 || g.config.x == 18 || g.config.x == 21) && g.config.y == 0) { color = landscape(p, e); }
-  if(g.config.x==10 || (g.config.y==1 && g.config.x==41)){color=waterEnvironment(p,waterMode());}
+  if ((effectId == 16 || effectId == 17 || effectId == 18 || effectId == 21) && g.config.y == 0) { color = landscape(p, e); }
+  if(effectId==10 || (g.config.y==1 && effectId==41)){color=waterEnvironment(p,waterMode());}
   if (e == 0) {
     let light = coords(g.pointer); let dist = length(p - light);
     let shade = softShadow(p, light, mix(35.0, 3.0, a.w));

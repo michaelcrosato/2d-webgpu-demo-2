@@ -6,6 +6,7 @@ export default defineConfig({
   expect: { timeout: 15000 },
   fullyParallel: false,
   workers: 1,
+  reporter: [["list", { printSteps: !!process.env.CI }]],
   use: {
     baseURL: "http://127.0.0.1:4173",
     viewport: { width: 1280, height: 1000 },
@@ -29,7 +30,7 @@ export default defineConfig({
         launchOptions: {
           headless: true,
           channel: "chromium",
-          executablePath: process.env.CHROME_PATH || (process.env.CI ? undefined : "/usr/bin/google-chrome"),
+          executablePath: process.env.CHROME_PATH || undefined,
           args: [
             "--disable-gpu-watchdog",
             "--enable-gpu",

@@ -869,7 +869,7 @@ export function emitArtShader(source: string, wgsl: boolean): string {
         _WATERB_: "g.waterB",
         _ORIGIN_: "g.origin",
         _IMPACT_: "g.impact",
-        _EFFECT_: "g.config.x",
+        _EFFECT_: "effectId",
         _CONTEXT_: "g.config.y",
       }
     : {

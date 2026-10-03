@@ -23,6 +23,7 @@ async function settle(page: Page, frames = 2) {
     ({ before, frames }) =>
       Number(document.querySelector<HTMLCanvasElement>("canvas")?.dataset.frame) > before + frames,
     { before, frames },
+    { timeout: 60000 },
   );
 }
 async function pixels(page: Page) {
@@ -70,15 +71,17 @@ test("all 48 native WebGPU techniques render all 144 contexts without validation
   for (const effect of [...effects, ...computeEffects]) {
     await page.locator(`button[data-effect="${effect.id}"]`).click();
     for (let context = 0; context < 3; context++) {
-      await page.locator(`#tab-${context}`).click();
-      if (["ripples", "shockwave", "wave-grid"].includes(effect.id))
-        await page.locator("canvas").click({ position: { x: 160, y: 100 } });
-      await settle(page);
-      const image = await pixels(page);
-      expect(image.backend).toBe("webgpu");
-      expect(image.range, `${effect.id} context ${context} must draw a real image`).toBeGreaterThan(12);
-      hashes.add(image.hash);
-      await expect(page.locator("#render-error")).toBeHidden();
+      await test.step(`${effect.id} / context ${context}`, async () => {
+        await page.locator(`#tab-${context}`).click();
+        if (["ripples", "shockwave", "wave-grid"].includes(effect.id))
+          await page.locator("canvas").click({ position: { x: 160, y: 100 } });
+        await settle(page);
+        const image = await pixels(page);
+        expect(image.backend).toBe("webgpu");
+        expect(image.range, `${effect.id} context ${context} must draw a real image`).toBeGreaterThan(12);
+        hashes.add(image.hash);
+        await expect(page.locator("#render-error")).toBeHidden();
+      });
     }
   }
   expect(hashes.size).toBeGreaterThan(130);
@@ -324,4 +327,78 @@ test("water studio has four real settings, five visible material controls, rippl
   await expect(page.locator("#water-0")).toHaveValue("92");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("delayed effect compilation keeps the selected scene and PNG export correct", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    const create = GPUDevice.prototype.createRenderPipelineAsync;
+    GPUDevice.prototype.createRenderPipelineAsync = async function (descriptor) {
+      const pipeline = await create.call(this, descriptor);
+      if (descriptor.label === "scene:10") await new Promise((resolve) => setTimeout(resolve, 2000));
+      return pipeline;
+    };
+  });
+  await page.goto("/#effect=soft-shadows&quality=0");
+  await ready(page);
+  await settle(page);
+  const original = await pixels(page);
+  // Start an uncached effect, then select a cached one while it is compiling.
+  await page.locator('button[data-effect="water"]').click();
+  await page.locator('button[data-effect="soft-shadows"]').click();
+  await settle(page);
+  await page.waitForTimeout(2500);
+  await settle(page);
+  expect((await pixels(page)).hash).toBe(original.hash);
+  await expect(page.locator("h1")).toHaveText("Soft shadows");
+  // A new page gives export an uncached effect to wait for as well.
+  await page.reload();
+  await ready(page);
+  await page.locator('button[data-effect="water"]').click();
+  const pending = page.waitForEvent("download");
+  await page.locator("#capture").click();
+  const download = await pending;
+  expect(download.suggestedFilename()).toBe("2d-lab-water-abstract.png");
+  const file = await readFile((await download.path())!);
+  await settle(page);
+  const actual = await pixels(page);
+  const exported = await page.evaluate(async (base64) => {
+    const response = await fetch(`data:image/png;base64,${base64}`);
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    let hash = 2166136261;
+    for (let i = 0; i < data.length; i += 64) hash = Math.imul(hash ^ data[i], 16777619) >>> 0;
+    bitmap.close();
+    return hash;
+  }, file.toString("base64"));
+  expect(exported).toBe(actual.hash);
+  await expect(page.locator("#render-error")).toBeHidden();
+});
+
+test("effect compilation failures surface without an unhandled rejection", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const create = GPUDevice.prototype.createRenderPipelineAsync;
+    GPUDevice.prototype.createRenderPipelineAsync = function (descriptor) {
+      if (descriptor.label === "scene:10")
+        return Promise.reject(new Error("Simulated effect compilation failure"));
+      return create.call(this, descriptor);
+    };
+  });
+  for (const captureFirst of [false, true]) {
+    await page.goto("/");
+    await ready(page);
+    // Also cover export requesting compilation before the animation loop does.
+    await page.evaluate((capture) => {
+      document.querySelector<HTMLButtonElement>('button[data-effect="water"]')!.click();
+      if (capture) document.querySelector<HTMLButtonElement>("#capture")!.click();
+    }, captureFirst);
+    await expect(page.locator("#app")).toHaveAttribute("data-ready", "error");
+    await expect(page.locator("#render-error")).toContainText("Simulated effect compilation failure");
+  }
+  expect(errors).toEqual([]);
 });

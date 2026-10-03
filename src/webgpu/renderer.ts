@@ -32,6 +32,11 @@ export class WebGPURenderer {
   private buffers: GPUBuffer[] = [];
   private fieldBuffers: GPUBuffer[] = [];
   private pipelines = new Map<string, GPURenderPipeline>();
+  private renderLayout!: GPUPipelineLayout;
+  private sceneModule!: GPUShaderModule;
+  private postModule!: GPUShaderModule;
+  private effectPromises = new Map<number, Promise<void>>();
+  private pipelineError: unknown;
   private update!: GPUComputePipeline;
   private fieldUpdate!: GPUComputePipeline;
   private tiledBlur!: GPUComputePipeline;
@@ -62,6 +67,7 @@ export class WebGPURenderer {
     canvas: HTMLCanvasElement,
     onLost: (message: string) => void,
     onError: (error: unknown) => void,
+    initialEffect = 0,
   ) {
     if (!navigator.gpu)
       throw new Error(
@@ -85,7 +91,7 @@ export class WebGPURenderer {
       if (!renderer.closed) onLost(`WebGPU device lost: ${info.message || info.reason}`);
     });
     try {
-      await renderer.initialize();
+      await renderer.initialize(initialEffect);
     } catch (error) {
       renderer.dispose();
       throw error;
@@ -177,11 +183,12 @@ export class WebGPURenderer {
       throw new Error(`${label}: ${errors.map((e) => `line ${e.lineNum}: ${e.message}`).join("\n")}`);
     return module;
   }
-  private async initialize() {
+  private async initialize(initialEffect: number) {
     const layout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.uniformLayout, this.resourcesLayout],
     });
-    const scene = await this.module(
+    this.renderLayout = layout;
+    this.sceneModule = await this.module(
       "Native WGSL scene",
       common + bindings + gameSceneShader(true) + waterShader(true) + sceneCode,
     );
@@ -189,14 +196,12 @@ export class WebGPURenderer {
       "Native WGSL post processing",
       common + bindings + gameSceneShader(true) + waterShader(true, true) + postCode,
     );
+    this.postModule = post;
     const particle = await this.module("Instanced WGSL particles", common + bindings + particleCode);
     const update = await this.module("Particle compute simulation", common + updateCode);
     const fieldModule = await this.module("Storage-buffer grid simulation", common + fieldCode);
     const blurModule = await this.module("Shared-memory tiled convolution", common + tiledBlurCode);
     for (const [name, module, entry, format] of [
-      ["scene", scene, "scene", "rgba16float"],
-      ["post-hdr", post, "post", "rgba16float"],
-      ["post", post, "post", "rgba8unorm"],
       ["blur", post, "blur", "rgba16float"],
       ["feedback", post, "feedback", "rgba16float"],
       ["present", post, "present", navigator.gpu.getPreferredCanvasFormat()],
@@ -269,11 +274,46 @@ export class WebGPURenderer {
       }),
       compute: { module: blurModule, entryPoint: "tiledBlur" },
     });
+    await this.prepareEffect(initialEffect);
     this.context.configure({
       device: this.device,
       format: navigator.gpu.getPreferredCanvasFormat(),
       alphaMode: "opaque",
     });
+  }
+  private prepareEffect(effect: number): Promise<void> {
+    const existing = this.effectPromises.get(effect);
+    if (existing) return existing;
+    // Compile only effects the visitor opens. Cache by effect, rather than replacing
+    // the active pipeline when an asynchronous compilation happens to finish.
+    const pending = Promise.all(
+      (
+        [
+          ["scene", this.sceneModule, "scene", "rgba16float"],
+          ["post-hdr", this.postModule, "post", "rgba16float"],
+          ["post", this.postModule, "post", "rgba8unorm"],
+        ] as const
+      ).map(async ([name, module, entryPoint, format]) => {
+        const key = `${name}:${effect}`;
+        const pipeline = await this.device.createRenderPipelineAsync({
+          label: key,
+          layout: this.renderLayout,
+          vertex: { module, entryPoint: "fullscreen" },
+          fragment: { module, entryPoint, constants: { effectId: effect }, targets: [{ format }] },
+          primitive: { topology: "triangle-list" },
+        });
+        return [key, pipeline] as const;
+      }),
+    )
+      .then((pipelines) => {
+        if (!this.closed) for (const [key, pipeline] of pipelines) this.pipelines.set(key, pipeline);
+      })
+      .catch((error: unknown) => {
+        if (!this.closed) this.pipelineError = error;
+        throw error;
+      });
+    this.effectPromises.set(effect, pending);
+    return pending;
   }
   private target(width: number, height: number, format: GPUTextureFormat = "rgba16float"): Target {
     const texture = this.device.createTexture({
@@ -427,7 +467,8 @@ export class WebGPURenderer {
         },
       ],
     });
-    pass.setPipeline(this.pipelines.get(name)!);
+    const key = ["scene", "post", "post-hdr"].includes(name) ? `${name}:${this.previousEffect}` : name;
+    pass.setPipeline(this.pipelines.get(key)!);
     pass.setBindGroup(0, this.uniformGroup, [uniform]);
     pass.setBindGroup(1, resources);
     pass.draw(name === "particles" || name === "sprites" ? 4 : 3, instances);
@@ -440,7 +481,12 @@ export class WebGPURenderer {
     this.particleReset = true;
   }
   render(state: RenderState) {
-    if (this.closed) return;
+    if (this.closed) return false;
+    if (this.pipelineError) throw this.pipelineError;
+    if (!this.pipelines.has(`scene:${state.effect}`)) {
+      if (!this.effectPromises.has(state.effect)) void this.prepareEffect(state.effect).catch(() => {});
+      return false;
+    }
     this.resize(state.quality);
     this.slot = 0;
     this.drawCalls = 0;
@@ -642,6 +688,7 @@ export class WebGPURenderer {
         this.inFlight = 0;
       });
     this.historyReset = false;
+    return true;
   }
   async readPixels() {
     const output = this.targets[7];
@@ -670,7 +717,10 @@ export class WebGPURenderer {
     buffer.destroy();
     return { data, width: output.width, height: output.height };
   }
-  async capture() {
+  async capture(state: RenderState) {
+    await this.prepareEffect(state.effect);
+    if (this.closed) throw new Error("Renderer unavailable");
+    this.render(state);
     const pixels = await this.readPixels();
     const snapshot = document.createElement("canvas");
     snapshot.width = pixels.width;
@@ -687,6 +737,8 @@ export class WebGPURenderer {
   }
   dispose() {
     this.closed = true;
+    this.pipelines.clear();
+    this.effectPromises.clear();
     this.targets.forEach((t) => {
       t.texture.destroy();
     });

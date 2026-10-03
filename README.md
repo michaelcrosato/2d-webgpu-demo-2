@@ -84,12 +84,13 @@ Open the printed localhost address for WebGPU; append `/webgl2.html` for WebGL2.
 npm run check                     # Biome checks
 npm run build                     # Type-check and build both editions
 npm run preview                   # Serve production build
+npx playwright install chromium --no-shell # Pinned browser for WebGPU tests
 npm test                          # Both native GPU/browser suites
 npm test -- --project=webgpu
 npm test -- --project=webgl2
 ```
 
-Local tests use Chrome at `/usr/bin/google-chrome`; set `CHROME_PATH` for another executable. CI pins the WebGPU browser to Playwright’s bundled Chromium and runs under Xvfb. Its compositor uses ANGLE SwiftShader while the actual WebGPU device uses Vulkan SwiftShader; GPU compositing is explicitly enabled. The suite reads real output textures into mapped buffers and exercises canvas presentation, with no application-level WebGL fallback. Use `xvfb-run -a npm test` locally. Browser launch flags belong to the tests, not the deployed application.
+WebGPU tests use Playwright’s bundled Chromium locally and in CI; WebGL2 tests use Chrome at `/usr/bin/google-chrome`. Set `CHROME_PATH` to override either executable. CI runs under Xvfb. Its compositor uses ANGLE SwiftShader while the actual WebGPU device uses Vulkan SwiftShader; GPU compositing is explicitly enabled. The suite reads real output textures into mapped buffers and exercises canvas presentation, with no application-level WebGL fallback. Use `xvfb-run -a npm test` locally. Browser launch flags belong to the tests, not the deployed application.
 
 Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compositions for all 48 techniques, four water settings and five material controls, validation errors, forbidden WebGL fallback, simulation evolution, pause, controls, style composition, links, PNG bytes, mobile, reduced motion, unsupported APIs, and device/context recovery.
 
@@ -104,6 +105,8 @@ Suites cover 144 WebGPU and 120 WebGL2 contexts, distinct unprocessed game compo
 7. **Present/export:** an RGBA8 output texture is presented to the canvas. PNG export copies that same texture to a row-aligned buffer and encodes its actual bytes, independently of presentation timing.
 
 Submissions are limited to two frames in flight to prevent unbounded GPU queues. FPS counts submitted frames under bounded scheduling, not isolated GPU execution time. Pass counts include render, compute, and presentation. Quality controls display resolution; compute fields use a fixed 256 × 160 grid.
+
+Scene and post-processing pipelines specialize the selected effect through a WGSL override constant, allowing the compiler to remove unused effect branches. They compile asynchronously on first use and are cached for subsequent visits. Pending compilation does not count as a rendered frame, and PNG export waits for the requested effect. The WebGPU sweep identifies each effect/context as a test step and bounds frame waits so a stalled scene produces a useful failure.
 
 ## Simulation boundaries
 

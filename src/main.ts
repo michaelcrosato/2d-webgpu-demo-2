@@ -483,11 +483,13 @@ $("#capture").addEventListener("click", async () => {
     toast("The renderer is not available");
     return;
   }
-  renderer.render(state);
+  const snapshot = structuredClone(state);
+  const filename = `2d-lab-${effects[selected].id}-${["abstract", "game", "world"][state.context]}.png`;
   try {
+    if (!(renderer instanceof WebGPURenderer)) renderer.render(snapshot);
     const blob =
       renderer instanceof WebGPURenderer
-        ? await renderer.capture()
+        ? await renderer.capture(snapshot)
         : await new Promise<Blob>((resolve, reject) =>
             canvas.toBlob((blob) =>
               blob ? resolve(blob) : reject(new Error("Could not capture the scene")),
@@ -496,7 +498,7 @@ $("#capture").addEventListener("click", async () => {
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = url;
-    a.download = `2d-lab-${effects[selected].id}-${["abstract", "game", "world"][state.context]}.png`;
+    a.download = filename;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast("Scene saved as PNG");
@@ -673,6 +675,7 @@ async function initialize() {
             renderer = undefined;
             showError(error);
           },
+          state.effect,
         )
       : new Renderer(canvas);
     if (generation !== initialization || pageSuspended) {
@@ -723,7 +726,11 @@ function frame(now: number) {
   if (renderer && !document.hidden) {
     if (!paused) state.time += elapsed * state.params[2] * 2;
     try {
-      renderer.render(state);
+      const submitted = renderer.render(state);
+      if (submitted === false) {
+        requestAnimationFrame(frame);
+        return;
+      }
       frameCounter++;
       fpsFrames++;
       canvas.dataset.frame = String(frameCounter);
