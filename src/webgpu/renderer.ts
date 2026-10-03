@@ -42,6 +42,7 @@ export class WebGPURenderer {
   private compilingEffect: number | null = null;
   private completedFrames = 0;
   private lastCompletion = 0;
+  private capturePending = false;
   private pipelineError: unknown;
   private update!: GPUComputePipeline;
   private fieldUpdate!: GPUComputePipeline;
@@ -65,7 +66,7 @@ export class WebGPURenderer {
   private particleReset = false;
   get busy() {
     if (this.pipelineError) throw this.pipelineError;
-    return this.inFlight >= 2;
+    return this.capturePending || this.inFlight >= 2;
   }
   health() {
     return {
@@ -74,6 +75,7 @@ export class WebGPURenderer {
       compilingEffect: this.compilingEffect,
       completedFrames: this.completedFrames,
       lastCompletionMs: Math.round(this.lastCompletion),
+      capturePending: this.capturePending,
     };
   }
   async waitForIdle() {
@@ -921,19 +923,26 @@ export class WebGPURenderer {
     }
   }
   async capture(state: RenderState) {
-    await this.prepareEffect(state.effect);
-    if (this.closed) throw new Error("Renderer unavailable");
-    this.render(state);
-    const pixels = await this.readPixels();
-    const snapshot = document.createElement("canvas");
-    snapshot.width = pixels.width;
-    snapshot.height = pixels.height;
-    snapshot
-      .getContext("2d")!
-      .putImageData(new ImageData(new Uint8ClampedArray(pixels.data), pixels.width, pixels.height), 0, 0);
-    return new Promise<Blob>((resolve, reject) =>
-      snapshot.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG export failed")))),
-    );
+    if (this.capturePending) throw new Error("A PNG export is already running.");
+    this.capturePending = true;
+    try {
+      await this.prepareEffect(state.effect);
+      await this.waitForIdle();
+      if (this.closed) throw new Error("Renderer unavailable");
+      this.render(state);
+      const pixels = await this.readPixels();
+      const snapshot = document.createElement("canvas");
+      snapshot.width = pixels.width;
+      snapshot.height = pixels.height;
+      snapshot
+        .getContext("2d")!
+        .putImageData(new ImageData(new Uint8ClampedArray(pixels.data), pixels.width, pixels.height), 0, 0);
+      return await new Promise<Blob>((resolve, reject) =>
+        snapshot.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG export failed")))),
+      );
+    } finally {
+      this.capturePending = false;
+    }
   }
   loseDevice() {
     this.device.destroy();

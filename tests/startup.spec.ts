@@ -212,3 +212,52 @@ test("a runtime demo compilation stall identifies the requested demo", async ({ 
   await expect(page.locator("#boot-summary")).toContainText("Effect 11: scene pipeline timed out");
   await expect(page.locator("#boot-environment")).toContainText("Demo at failure: water");
 });
+
+test("repeated capture clicks respect the two-frame queue limit", async ({ page }) => {
+  await page.goto("/");
+  await enterLab(page);
+  const download = page.waitForEvent("download");
+  const peak = await page.evaluate(async () => {
+    const original = GPUQueue.prototype.onSubmittedWorkDone;
+    GPUQueue.prototype.onSubmittedWorkDone = async function () {
+      await original.call(this);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    };
+    for (let i = 0; i < 6; i++) document.querySelector<HTMLButtonElement>("#capture")!.click();
+    let peak = 0;
+    for (let i = 0; i < 15; i++) {
+      peak = Math.max(peak, window.lab.stats().inFlight ?? 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    GPUQueue.prototype.onSubmittedWorkDone = original;
+    return peak;
+  });
+  expect(peak).toBeLessThanOrEqual(2);
+  expect((await download).suggestedFilename()).toBe("2d-lab-soft-shadows-abstract.png");
+  await expect(page.locator("#capture")).toBeEnabled();
+  await expect(page.locator("#boot-screen")).toBeHidden();
+});
+
+test("native GPU validation errors preserve their useful message", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = GPUDevice.prototype.addEventListener;
+    GPUDevice.prototype.addEventListener = function (type, listener, options) {
+      if (type === "uncapturederror") Object.assign(window, { deviceForFaults: this });
+      return original.call(this, type, listener, options);
+    };
+  });
+  await page.goto("/");
+  await enterLab(page);
+  await page.evaluate(() => {
+    const device = (window as unknown as { deviceForFaults: GPUDevice }).deviceForFaults;
+    device.dispatchEvent(
+      new GPUUncapturedErrorEvent("uncapturederror", {
+        error: new GPUValidationError("Simulated GPU binding mismatch: binding 6"),
+      }),
+    );
+  });
+  await expect(page.locator("#boot-screen")).toHaveAttribute("data-status", "failed");
+  await expect(page.locator("#boot-summary")).toContainText("GPU binding mismatch: binding 6");
+  await expect(page.locator("#boot-summary")).not.toContainText("[object GPUValidationError]");
+  await expect(page.locator("#app")).toHaveAttribute("data-ready", "error");
+});

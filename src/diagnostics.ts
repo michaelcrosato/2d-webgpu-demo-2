@@ -13,6 +13,15 @@ export interface BootScreen {
   preview(pixels: { data: Uint8Array; width: number; height: number }): void;
 }
 
+export function toDiagnosticError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const kind = error.constructor.name;
+    return new Error(`${kind === "Object" ? "" : `${kind}: `}${String(error.message)}`);
+  }
+  return new Error(String(error));
+}
+
 export async function deadline<T>(work: PromiseLike<T>, label: string, timeoutMs = 30000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -67,8 +76,9 @@ export async function diagnosticCheck<T>(
     window.boot.step(id, label, "passed", `${Math.round(performance.now() - start)} ms`);
     return value;
   } catch (error) {
-    window.boot.step(id, label, "failed", error instanceof Error ? error.message : String(error));
-    throw error;
+    const failure = toDiagnosticError(error);
+    window.boot.step(id, label, "failed", failure.message);
+    throw failure;
   }
 }
 

@@ -1,5 +1,5 @@
 import { type Effect, styleOptions } from "./catalog";
-import { diagnosticCheck, type LabDiagnostics } from "./diagnostics";
+import { diagnosticCheck, type LabDiagnostics, toDiagnosticError } from "./diagnostics";
 import { categories, edition, effects, isWebGPU } from "./edition";
 import { gameStudies } from "./game-scenes";
 import { Renderer, type RenderState } from "./renderer";
@@ -498,6 +498,9 @@ $("#capture").addEventListener("click", async () => {
   }
   const snapshot = structuredClone(state);
   const filename = `2d-lab-${effects[selected].id}-${["abstract", "game", "world"][state.context]}.png`;
+  const captureButton = $<HTMLButtonElement>("#capture");
+  captureButton.disabled = true;
+  captureButton.setAttribute("aria-busy", "true");
   try {
     if (!(renderer instanceof WebGPURenderer)) renderer.render(snapshot);
     const blob =
@@ -516,7 +519,10 @@ $("#capture").addEventListener("click", async () => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast("Scene saved as PNG");
   } catch (error) {
-    toast(error instanceof Error ? error.message : "Could not capture the scene");
+    showError(error);
+  } finally {
+    captureButton.disabled = false;
+    captureButton.setAttribute("aria-busy", "false");
   }
 });
 async function copy(content: string, success: string) {
@@ -625,7 +631,8 @@ document.querySelectorAll<HTMLButtonElement>('button[data-lesson][aria-selected=
 });
 window.addEventListener("hashchange", readURL);
 function showError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const failure = toDiagnosticError(error);
+  const message = failure.message;
   text("#render-error", message);
   $("#render-error").hidden = false;
   text("#engine", "GPU UNAVAILABLE");
@@ -642,7 +649,7 @@ function showError(error: unknown) {
     "Demo at failure",
     `${effects[selected].id}, context ${state.context}, quality ${state.quality}, style ${state.style}`,
   );
-  window.boot.fail(error);
+  window.boot.fail(failure);
   window.boot.detail("Scene settings", JSON.stringify(state));
   window.boot.detail("URL", location.href);
   console.error(error);
